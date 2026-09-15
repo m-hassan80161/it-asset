@@ -1,0 +1,276 @@
+// =========================================================
+// IT Asset Management / AD Sync / Onboarding Platform
+// PostgreSQL schema (Prisma)
+// =========================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// 1. INVENTORY & ASSET MANAGEMENT
+// ---------------------------------------------------------
+
+model Device {
+  id            String   @id @default(uuid())
+  computerName  String   @unique
+  loggedInUser  String?
+  osName        String?
+  osVersion     String?
+  osBuild       String?
+  domain        String?
+  lastSeenAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  cpu           CpuInfo?
+  motherboard   MotherboardInfo?
+  ramModules    RamModule[]
+  disks         DiskDrive[]
+  software      InstalledSoftware[]
+  gitConfig     GitConfig?
+  complianceAlerts ComplianceAlert[]
+
+  @@index([computerName])
+}
+
+model CpuInfo {
+  id           String  @id @default(uuid())
+  deviceId     String  @unique
+  device       Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  model        String
+  cores        Int
+  threads      Int
+  clockSpeedMhz Int
+  architecture String
+}
+
+model MotherboardInfo {
+  id           String @id @default(uuid())
+  deviceId     String @unique
+  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  manufacturer String
+  model        String
+  serialNumber String
+}
+
+model RamModule {
+  id           String @id @default(uuid())
+  deviceId     String
+  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  capacityGb   Float
+  speedMhz     Int
+  serialNumber String?
+  slot         String?
+
+  @@index([deviceId])
+}
+
+enum DiskType {
+  SSD
+  HDD
+  NVME
+  UNKNOWN
+}
+
+model DiskDrive {
+  id           String   @id @default(uuid())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  type         DiskType @default(UNKNOWN)
+  serialNumber String?
+  totalSpaceGb Float
+  freeSpaceGb  Float
+
+  @@index([deviceId])
+}
+
+enum ComplianceStatus {
+  UP_TO_DATE
+  OUTDATED
+  MISSING
+  NOT_TRACKED
+}
+
+model InstalledSoftware {
+  id               String            @id @default(uuid())
+  deviceId         String
+  device           Device            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name             String
+  version          String
+  publisher        String?
+  installDate      DateTime?
+  masterSoftwareId String?
+  masterSoftware   MasterSoftware?   @relation(fields: [masterSoftwareId], references: [id])
+  complianceStatus ComplianceStatus  @default(NOT_TRACKED)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([deviceId])
+  @@index([name])
+}
+
+// Baseline/master list of software + minimum required version (admin managed)
+model MasterSoftware {
+  id                String               @id @default(uuid())
+  name              String               @unique
+  minRequiredVersion String
+  isMandatory       Boolean              @default(false)
+  installations     InstalledSoftware[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+}
+
+// Delta-update detector alerts: "Device X upgraded App to version Y, N others still old"
+model ComplianceAlert {
+  id            String   @id @default(uuid())
+  deviceId      String
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  softwareName  String
+  newVersion    String
+  message       String
+  laggingCount  Int
+  resolved      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([deviceId])
+}
+
+model GitConfig {
+  id            String   @id @default(uuid())
+  deviceId      String   @unique
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  userName      String?
+  userEmail     String?
+  gitVersion    String?
+  sshPublicKeys String[] // array of public key fingerprints/contents
+}
+
+// ---------------------------------------------------------
+// 2. ACTIVE DIRECTORY SYNC
+// ---------------------------------------------------------
+
+model AdOrganizationalUnit {
+  id           String   @id @default(uuid())
+  distinguishedName String @unique
+  name         String
+  parentDn     String?
+  excluded     Boolean  @default(false)
+  lastSyncedAt DateTime @default(now())
+
+  users        AdUser[]
+}
+
+model AdGroup {
+  id                String    @id @default(uuid())
+  distinguishedName String    @unique
+  name              String
+  description       String?
+  excluded          Boolean   @default(false)
+  lastSyncedAt      DateTime  @default(now())
+
+  members           AdUserGroup[]
+}
+
+model AdUser {
+  id                String    @id @default(uuid())
+  distinguishedName String    @unique
+  sAMAccountName    String    @unique
+  firstName         String?
+  lastName          String?
+  email             String?
+  managerDn         String?
+  manager           AdUser?   @relation("ManagerToReports", fields: [managerDn], references: [distinguishedName])
+  directReports     AdUser[]  @relation("ManagerToReports")
+  ouId              String?
+  ou                AdOrganizationalUnit? @relation(fields: [ouId], references: [id])
+  isServiceAccount  Boolean   @default(false)
+  excluded          Boolean   @default(false)
+  lastSyncedAt      DateTime  @default(now())
+
+  groups            AdUserGroup[]
+  onboardingRequests OnboardingRequest[]
+}
+
+model AdUserGroup {
+  id       String  @id @default(uuid())
+  userId   String
+  user     AdUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId  String
+  group    AdGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+}
+
+// Config for excluding service accounts / admin OUs from sync views
+model AdSyncExclusionRule {
+  id        String   @id @default(uuid())
+  pattern   String   // e.g. "OU=ServiceAccounts,*" or "Admin_*"
+  type      String   // "OU" | "GROUP" | "USER"
+  createdAt DateTime @default(now())
+}
+
+// ---------------------------------------------------------
+// 3. FILE SERVER HIERARCHY
+// ---------------------------------------------------------
+
+model DepartmentFolder {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  uncPath      String   @unique // e.g. \\fileserver\CompanyData\Finance
+  lastScannedAt DateTime @default(now())
+
+  onboardingRequests OnboardingRequest[]
+}
+
+// ---------------------------------------------------------
+// 4. ONBOARDING WORKFLOW
+// ---------------------------------------------------------
+
+enum OnboardingStep {
+  PENDING
+  AD_USER_CREATED
+  AD_GROUPS_ASSIGNED
+  FOLDER_CREATED
+  NTFS_PERMISSIONS_SET
+  COMPLETED
+  FAILED
+}
+
+model OnboardingRequest {
+  id                String          @id @default(uuid())
+  firstName         String
+  lastName          String
+  username          String          @unique
+  email             String
+  targetOuDn        String
+  managerDn         String?
+  departmentFolderId String?
+  departmentFolder  DepartmentFolder? @relation(fields: [departmentFolderId], references: [id])
+  requestedGroups   String[]        // group DNs
+  status            OnboardingStep  @default(PENDING)
+  errorMessage      String?
+  createdAdUserId   String?
+  createdAdUser     AdUser?         @relation(fields: [createdAdUserId], references: [id])
+  createdFolderPath String?
+  logs              OnboardingLog[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model OnboardingLog {
+  id                  String            @id @default(uuid())
+  onboardingRequestId String
+  onboardingRequest   OnboardingRequest @relation(fields: [onboardingRequestId], references: [id], onDelete: Cascade)
+  step                OnboardingStep
+  success             Boolean
+  message             String
+  createdAt           DateTime          @default(now())
+
+  @@index([onboardingRequestId])
+}

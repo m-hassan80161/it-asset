@@ -1,0 +1,83 @@
+{
+  "computerName": "WORKSTATION-01",
+  "loggedInUser": "john.doe",
+  "osName": "Windows 11",
+  "osVersion": "23H2",
+  "osBuild": "22631",
+  "domain": "corp.local",
+  "cpu": {
+    "model": "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz",
+    "cores": 12,
+    "threads": 20,
+    "clockSpeedMhz": 3600,
+    "architecture": "x86_64"
+  },
+  "motherboard": {
+    "manufacturer": "ASUSTeK COMPUTER INC.",
+    "model": "ROG STRIX Z690-E GAMING WIFI",
+    "serialNumber": "ABC123DEF456"
+  },
+  "ramModules": [
+    {
+      "capacityGb": 32,
+      "speedMhz": 4800,
+      "serialNumber": "SK08765432",
+      "slot": "DIMM A1"
+    },
+    {
+      "capacityGb": 32,
+      "speedMhz": 4800,
+      "serialNumber": "SK08765433",
+      "slot": "DIMM A2"
+    }
+  ],
+  "disks": [
+    {
+      "type": "NVME",
+      "serialNumber": "SA9876543210",
+      "totalSpaceGb": 1024,
+      "freeSpaceGb": 512
+    },
+    {
+      "type": "SSD",
+      "serialNumber": "SA9876543211",
+      "totalSpaceGb": 500,
+      "freeSpaceGb": 250
+    }
+  ],
+  "software": [
+    {
+      "name": "Google Chrome",
+      "version": "127.0.6533.119",
+      "publisher": "Google LLC",
+      "installDate": "2024-09-01"
+    },
+    {
+      "name": "Microsoft Office 365 ProPlus",
+      "version": "16.0.17830.20154",
+      "publisher": "Microsoft Corporation",
+      "installDate": "2024-01-15"
+    },
+    {
+      "name": "Git",
+      "version": "2.46.0",
+      "publisher": "The Git Development Community",
+      "installDate": "2024-08-20"
+    },
+    {
+      "name": "Docker Desktop",
+      "version": "4.32.0",
+      "publisher": "Docker Inc.",
+      "installDate": "2024-07-10"
+    }
+  ],
+  "gitConfig": {
+    "userName": "John Doe",
+    "userEmail": "john.doe@corp.local",
+    "gitVersion": "git version 2.46.0.windows.1",
+    "sshPublicKeys": [
+      "john-laptop-key",
+      "john-desktop-key"
+    ]
+  }
+}

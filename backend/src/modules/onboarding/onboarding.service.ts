@@ -1,19 +1,19 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { OnboardingStep } from "@prisma/client";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { ActiveDirectoryService } from "../active-directory/ad.service";
-import { FileServerService } from "../file-server/file-server.service";
+//import { FileServerService } from "../file-server/file-server.service";
 import { CreateEmployeeOnboardingDto } from "./dto/create-employee-onboarding.dto";
 
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly adService: ActiveDirectoryService,
-    private readonly fsService: FileServerService,
-  ) {}
+constructor(
+  private readonly prisma: PrismaService,
+  private readonly adService: ActiveDirectoryService,
+//  @Optional() private readonly fsService: FileServerService,  // ← أضف @Optional()
+) {}
 
   /**
    * Main orchestration: runs all onboarding steps in sequence with logging.
@@ -64,35 +64,35 @@ export class OnboardingService {
       this.logger.log(`Step 2 OK: assigned ${dto.requestedGroupDns.length} group(s)`);
 
       // Step 3: Create folder (if department assigned)
-      let folderPath: string | undefined;
-      if (dto.departmentFolderId) {
-        const dept = await this.prisma.departmentFolder.findUnique({
-          where: { id: dto.departmentFolderId },
-        });
-        if (dept) {
-          await this.logStep(request.id, OnboardingStep.FOLDER_CREATED, true, "Creating user folder...");
-          folderPath = await this.fsService.createUserFolder(dept.uncPath, dto.username);
-          await this.prisma.onboardingRequest.update({
-            where: { id: request.id },
-            data: { createdFolderPath: folderPath, status: OnboardingStep.FOLDER_CREATED },
-          });
-          this.logger.log(`Step 3 OK: ${folderPath}`);
-        }
-      }
+      // let folderPath: string | undefined;
+      // if (dto.departmentFolderId && this.fsService) {
+      //   const dept = await this.prisma.departmentFolder.findUnique({
+      //     where: { id: dto.departmentFolderId },
+      //   });
+      //   if (dept) {
+      //     await this.logStep(request.id, OnboardingStep.FOLDER_CREATED, true, "Creating user folder...");
+      //     folderPath = await this.fsService.createUserFolder(dept.uncPath, dto.username);
+      //     await this.prisma.onboardingRequest.update({
+      //       where: { id: request.id },
+      //       data: { createdFolderPath: folderPath, status: OnboardingStep.FOLDER_CREATED },
+      //     });
+      //     this.logger.log(`Step 3 OK: ${folderPath}`);
+      //   }
+      // }
 
       // Step 4: Set NTFS permissions
-      if (folderPath) {
-        await this.logStep(request.id, OnboardingStep.NTFS_PERMISSIONS_SET, true, "Setting NTFS permissions...");
-        const manager = dto.managerDn
-          ? await this.prisma.adUser.findUnique({ where: { distinguishedName: dto.managerDn } })
-          : null;
-        await this.fsService.setNtfsPermissions(folderPath, dto.username, manager?.sAMAccountName);
-        await this.prisma.onboardingRequest.update({
-          where: { id: request.id },
-          data: { status: OnboardingStep.NTFS_PERMISSIONS_SET },
-        });
-        this.logger.log(`Step 4 OK: NTFS permissions set`);
-      }
+      // if (folderPath && this.fsService) {
+      //   await this.logStep(request.id, OnboardingStep.NTFS_PERMISSIONS_SET, true, "Setting NTFS permissions...");
+      //   const manager = dto.managerDn
+      //     ? await this.prisma.adUser.findUnique({ where: { distinguishedName: dto.managerDn } })
+      //     : null;
+      //   await this.fsService.setNtfsPermissions(folderPath, dto.username, manager?.sAMAccountName);
+      //   await this.prisma.onboardingRequest.update({
+      //     where: { id: request.id },
+      //     data: { status: OnboardingStep.NTFS_PERMISSIONS_SET },
+      //   });
+      //   this.logger.log(`Step 4 OK: NTFS permissions set`);
+      // }
 
       // Mark as completed
       await this.prisma.onboardingRequest.update({

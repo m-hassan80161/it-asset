@@ -11,12 +11,34 @@ interface IncomingSoftware {
 }
 
 /**
- * Normalizes loose version strings (many installers don't ship strict
- * semver, e.g. "23.4" or "1.0.0.4521") into something semver can compare.
+ * Normalizes loose version strings into something semver can compare.
+ * Examples:
+ *   "23.4"       -> "23.4.0"
+ *   "1.0.0.4521" -> "1.0.0"
  */
 function normalizeVersion(raw: string): string | null {
   const coerced = semver.coerce(raw);
   return coerced ? coerced.version : null;
+}
+
+/**
+ * Safely parses an installation date.
+ *
+ * If Windows/Agent sends an invalid or unsupported date,
+ * return undefined instead of passing Invalid Date to Prisma.
+ */
+function parseInstallDate(raw?: string): Date | undefined {
+  if (!raw || !raw.trim()) {
+    return undefined;
+  }
+
+  const parsed = new Date(raw);
+
+  if (isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed;
 }
 
 @Injectable()
@@ -27,21 +49,44 @@ export class SoftwareComplianceService {
 
   /**
    * Replaces a device's software snapshot and:
-   *  1. Computes compliance status against the master list.
-   *  2. Runs the delta-update detector: if this device now reports a
-   *     version higher than what's currently the majority/previous max
-   *     across the fleet for that software, raise a ComplianceAlert.
+   *
+   * 1. Computes compliance status against the master list.
+   * 2. Runs the delta-update detector.
+   * 3. Creates a ComplianceAlert when a device reports a newer
+   *    version than the other devices.
    */
-  async reconcileDeviceSoftware(deviceId: string, incoming: IncomingSoftware[]) {
+  async reconcileDeviceSoftware(
+    deviceId: string,
+    incoming: IncomingSoftware[],
+  ) {
     const masterList = await this.prisma.masterSoftware.findMany();
-    const masterByName = new Map(masterList.map((m) => [m.name.toLowerCase(), m]));
+
+    const masterByName = new Map(
+      masterList.map((m) => [m.name.toLowerCase(), m]),
+    );
 
     // Replace-all snapshot for this device
-    await this.prisma.installedSoftware.deleteMany({ where: { deviceId } });
+    await this.prisma.installedSoftware.deleteMany({
+      where: { deviceId },
+    });
 
     for (const item of incoming) {
       const master = masterByName.get(item.name.toLowerCase());
-      const status = this.computeStatus(item.version, master?.minRequiredVersion);
+
+      const status = this.computeStatus(
+        item.version,
+        master?.minRequiredVersion,
+      );
+
+      // Safely parse installation date
+      const installDate = parseInstallDate(item.installDate);
+
+      // Don't crash the whole inventory upload because of one bad date.
+      if (item.installDate && !installDate) {
+        this.logger.warn(
+          `Invalid installDate ignored for "${item.name}": ${item.installDate}`,
+        );
+      }
 
       await this.prisma.installedSoftware.create({
         data: {
@@ -49,19 +94,29 @@ export class SoftwareComplianceService {
           name: item.name,
           version: item.version,
           publisher: item.publisher,
-          installDate: item.installDate ? new Date(item.installDate) : undefined,
+          installDate,
           masterSoftwareId: master?.id,
           complianceStatus: status,
         },
       });
 
-      await this.runDeltaDetector(deviceId, item.name, item.version);
+      await this.runDeltaDetector(
+        deviceId,
+        item.name,
+        item.version,
+      );
     }
 
     // Anything on the master list marked mandatory but absent = MISSING
-    const incomingNames = new Set(incoming.map((i) => i.name.toLowerCase()));
+    const incomingNames = new Set(
+      incoming.map((i) => i.name.toLowerCase()),
+    );
+
     for (const master of masterList) {
-      if (master.isMandatory && !incomingNames.has(master.name.toLowerCase())) {
+      if (
+        master.isMandatory &&
+        !incomingNames.has(master.name.toLowerCase())
+      ) {
         await this.prisma.installedSoftware.create({
           data: {
             deviceId,
@@ -75,11 +130,21 @@ export class SoftwareComplianceService {
     }
   }
 
-  private computeStatus(installedVersion: string, minRequired?: string): ComplianceStatus {
-    if (!minRequired) return ComplianceStatus.NOT_TRACKED;
+  private computeStatus(
+    installedVersion: string,
+    minRequired?: string,
+  ): ComplianceStatus {
+    if (!minRequired) {
+      return ComplianceStatus.NOT_TRACKED;
+    }
+
     const installed = normalizeVersion(installedVersion);
     const required = normalizeVersion(minRequired);
-    if (!installed || !required) return ComplianceStatus.NOT_TRACKED;
+
+    if (!installed || !required) {
+      return ComplianceStatus.NOT_TRACKED;
+    }
+
     return semver.gte(installed, required)
       ? ComplianceStatus.UP_TO_DATE
       : ComplianceStatus.OUTDATED;
@@ -87,29 +152,55 @@ export class SoftwareComplianceService {
 
   /**
    * Delta-update detector.
-   * Looks at every OTHER device's currently reported version of the same
-   * software. If this device's version is strictly newer than the max
-   * seen elsewhere, fire an alert naming how many devices lag behind.
+   *
+   * Looks at every OTHER device's currently reported version
+   * of the same software.
+   *
+   * If this device's version is newer than all other reported
+   * versions, create a ComplianceAlert.
    */
-  private async runDeltaDetector(deviceId: string, softwareName: string, newVersion: string) {
+  private async runDeltaDetector(
+    deviceId: string,
+    softwareName: string,
+    newVersion: string,
+  ) {
     const newNorm = normalizeVersion(newVersion);
-    if (!newNorm) return;
+
+    if (!newNorm) {
+      return;
+    }
 
     const others = await this.prisma.installedSoftware.findMany({
       where: {
-        name: { equals: softwareName, mode: "insensitive" },
-        deviceId: { not: deviceId },
+        name: {
+          equals: softwareName,
+          mode: "insensitive",
+        },
+        deviceId: {
+          not: deviceId,
+        },
       },
-      select: { version: true, deviceId: true },
+      select: {
+        version: true,
+        deviceId: true,
+      },
     });
 
-    if (others.length === 0) return; // nothing to compare against yet
+    // Nothing to compare against yet
+    if (others.length === 0) {
+      return;
+    }
 
     let laggingCount = 0;
     let isNewMax = true;
-    for (const o of others) {
-      const otherNorm = normalizeVersion(o.version);
-      if (!otherNorm) continue;
+
+    for (const other of others) {
+      const otherNorm = normalizeVersion(other.version);
+
+      if (!otherNorm) {
+        continue;
+      }
+
       if (semver.lt(otherNorm, newNorm)) {
         laggingCount++;
       } else if (semver.gte(otherNorm, newNorm)) {
@@ -118,33 +209,71 @@ export class SoftwareComplianceService {
     }
 
     if (isNewMax && laggingCount > 0) {
-      const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
-      const message = `Device ${device?.computerName} upgraded ${softwareName} to version ${newVersion}. ${laggingCount} other device(s) are still on older versions.`;
+      const device = await this.prisma.device.findUnique({
+        where: {
+          id: deviceId,
+        },
+      });
+
+      const message =
+        `Device ${device?.computerName} upgraded ` +
+        `${softwareName} to version ${newVersion}. ` +
+        `${laggingCount} other device(s) are still on older versions.`;
 
       await this.prisma.complianceAlert.create({
-        data: { deviceId, softwareName, newVersion, message, laggingCount },
+        data: {
+          deviceId,
+          softwareName,
+          newVersion,
+          message,
+          laggingCount,
+        },
       });
+
       this.logger.warn(message);
     }
   }
 
   async listMasterList() {
-    return this.prisma.masterSoftware.findMany({ orderBy: { name: "asc" } });
+    return this.prisma.masterSoftware.findMany({
+      orderBy: {
+        name: "asc",
+      },
+    });
   }
 
-  async upsertMasterSoftware(name: string, minRequiredVersion: string, isMandatory = false) {
+  async upsertMasterSoftware(
+    name: string,
+    minRequiredVersion: string,
+    isMandatory = false,
+  ) {
     return this.prisma.masterSoftware.upsert({
-      where: { name },
-      create: { name, minRequiredVersion, isMandatory },
-      update: { minRequiredVersion, isMandatory },
+      where: {
+        name,
+      },
+      create: {
+        name,
+        minRequiredVersion,
+        isMandatory,
+      },
+      update: {
+        minRequiredVersion,
+        isMandatory,
+      },
     });
   }
 
   async listOpenAlerts() {
     return this.prisma.complianceAlert.findMany({
-      where: { resolved: false },
-      include: { device: true },
-      orderBy: { createdAt: "desc" },
+      where: {
+        resolved: false,
+      },
+      include: {
+        device: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
     });
   }
 }

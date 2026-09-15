@@ -44,12 +44,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: "api/v1"
     container_name: itam_frontend
     restart: unless-stopped
     depends_on:
       - backend
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000/api/v1}
     ports:
       - "5173:5173"
     volumes:
@@ -73,6 +73,19 @@ services:
       - itam_net
     profiles:
       - tools   # start with: docker compose --profile tools up
+  nginx:
+    image: nginx:alpine
+    container_name: itam_proxy
+    ports:
+      - "8080:80"
+    volumes:
+      # 🔴 استخدام المسار النسبي بوجود النقطة ./
+      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - itam_net
+    depends_on:
+      - frontend
+      - backend
 
 networks:
   itam_net:

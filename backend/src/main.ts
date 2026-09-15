@@ -19,11 +19,13 @@ async function bootstrap() {
     )
     .setVersion("1.0")
     .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup("api/docs", app, document);
+  const document = SwaggerModule.setup("api/docs", app, SwaggerModule.createDocument(app, config));
 
   const port = process.env.PORT || 3000;
-  await app.listen(port);
+  
+  // 🔴 التعديل هنا: إضافة '0.0.0.0' لتسمح بالربط من الـ IP الشبكي (10.22.28.82)
+  await app.listen(port, '0.0.0.0');
+  
   // eslint-disable-next-line no-console
   console.log(`Backend listening on port ${port} — docs at /api/docs`);
 }

@@ -309,3 +309,6 @@ MIT
 ## Support
 
 See [SETUP.md](./docs/SETUP.md) for complete setup instructions, troubleshooting, and production deployment guidance.
+## Device Management
+
+Device management allows administrators to add, edit and manage company devices.

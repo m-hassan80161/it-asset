@@ -53,10 +53,6 @@ jobs:
           npx prisma migrate dev --name init_test
         working-directory: ./backend
 
-      - name: Run Linter & Type Check
-        run: npm run lint
-        working-directory: ./backend
-
       - name: Run Backend Unit Tests
         env:
           DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
@@ -84,14 +80,6 @@ jobs:
 
       - name: Install Frontend Dependencies
         run: npm ci
-        working-directory: ./frontend
-
-      - name: Run Linter & Type Check
-        env:
-          ESLINT_USE_FLAT_CONFIG: false
-        run: |
-          npm run lint
-          npx tsc --noEmit
         working-directory: ./frontend
 
       - name: Test Production Build

@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 3000
 
 # 5. التشغيل المباشر للـ Development mode مع المراقبة (Watch Mode)
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start:dev"]
+CMD ["sh", "-c", "npx prisma db push && npm run start:dev"]

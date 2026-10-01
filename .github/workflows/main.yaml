@@ -88,6 +88,8 @@ jobs:
 
       - name: Run Linter & Type Check
         run: |
+          env:
+            ESLINT_USE_FLAT_CONFIG: false
           npm run lint
           npx tsc --noEmit
         working-directory: ./frontend

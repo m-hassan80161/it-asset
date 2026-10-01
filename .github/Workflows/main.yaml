@@ -1,0 +1,136 @@
+name: CI Pipeline - ITAM Platform
+
+on:
+  push:
+    branches: [ "lastupdate" ]
+
+
+jobs:
+  # -------------------------------------------------------------
+  # Job 1: فحص واختبار الـ Backend (NestJS + Prisma)
+  # -------------------------------------------------------------
+  backend-ci:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: itam_admin
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: itam_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Validate Prisma Schema & Generate Client
+        env:
+          DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
+        run: |
+          npx prisma validate
+          npx prisma generate
+          npx prisma migrate dev --name init_test
+        working-directory: ./backend
+
+      - name: Run Linter & Type Check
+        run: npm run lint
+        working-directory: ./backend
+
+      - name: Run Backend Unit Tests
+        env:
+          DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
+        run: npm run test
+        working-directory: ./backend
+
+  # -------------------------------------------------------------
+  # Job 2: فحص واختبار الـ Frontend (React + Vite + TS)
+  # -------------------------------------------------------------
+  frontend-ci:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Run Linter & Type Check
+        run: |
+          npm run lint
+          npx tsc --noEmit
+        working-directory: ./frontend
+
+      - name: Test Production Build
+        run: npm run build
+        working-directory: ./frontend
+
+  # -------------------------------------------------------------
+  # Job 3: فحص سكربت PowerShell للعملاء (GPO Script Analysis)
+  # -------------------------------------------------------------
+  powershell-analysis:
+    name: PowerShell Script Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run PSScriptAnalyzer
+        uses: microsoft/psscriptanalyzer-action@v1.1
+        with:
+          path: 'scripts/Collect-Inventory.ps1'
+          recurse: true
+          severity: 'Error'
+
+  # -------------------------------------------------------------
+  # Job 4: فحص ثغرات الحاويات (Trivy Container Scan)
+  # -------------------------------------------------------------
+  security-scan:
+    name: Security & Container Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Local Backend Image
+        run: docker build -t itam-backend:test ./backend
+
+      - name: Scan Backend Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-backend:test'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'

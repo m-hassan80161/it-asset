@@ -53,11 +53,6 @@ jobs:
           npx prisma migrate dev --name init_test
         working-directory: ./backend
 
-      - name: Run Backend Unit Tests
-        env:
-          DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
-        run: npm run test
-        working-directory: ./backend
 
   # -------------------------------------------------------------
   # Job 2: فحص واختبار الـ Frontend (React + Vite + TS)

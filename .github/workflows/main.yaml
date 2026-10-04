@@ -3,8 +3,7 @@ name: CI Pipeline - ITAM Platform
 on:
   push:
     branches: [ "devolp" ]
-  pull_request:
-    branches: [ "main" ]
+
 
 jobs:
   # ===== Backend CI =====
@@ -169,7 +168,6 @@ jobs:
       - security-scan
 
     # Production images only from main
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-latest
 

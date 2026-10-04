@@ -2,7 +2,7 @@ name: CI Pipeline - ITAM Platform
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "devolp" ]
   pull_request:
     branches: [ "main" ]
 

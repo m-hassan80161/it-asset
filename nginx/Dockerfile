@@ -1,8 +1,10 @@
 FROM nginx:alpine
-# نسخ ملفات الـ Static المبنّية إلى Nginx
-COPY  /app/dist /usr/share/nginx/html
-# نسخ إعدادات Nginx المخصصة
-COPY . /etc/nginx/conf.d/default.conf
+
+# حذف الإعدادات الافتراضية للـ Nginx
+RUN rm /etc/nginx/nginx.conf
+
+# نسخ ملف الإعدادات الشامل المخصص بتاعك
+COPY default.conf /etc/nginx/nginx.conf
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

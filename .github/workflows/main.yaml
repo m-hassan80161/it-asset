@@ -1,0 +1,252 @@
+name: CI Pipeline - ITAM Platform
+
+on:
+  push:
+    branches: [ "devolp" ]
+
+jobs:
+  # ===== Backend CI =====
+  backend-ci:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: itam_admin
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: itam_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '23'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Backend Dependencies
+        run: npm ci
+        working-directory: ./backend
+
+      - name: Build Backend
+        run: npm run build
+        working-directory: ./backend
+
+      - name: Validate Prisma Schema & Generate Client
+        env:
+          DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
+        run: |
+          npx prisma validate
+          npx prisma generate
+          npx prisma migrate deploy
+        working-directory: ./backend
+
+      - name: Run Backend Unit Tests
+        env:
+          DATABASE_URL: "postgresql://itam_admin:test_password@localhost:5432/itam_platform_test?schema=public"
+        run: npm run test -- --passWithNoTests
+        working-directory: ./backend
+
+
+  # ===== Frontend CI =====
+  frontend-ci:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '23'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+        working-directory: ./frontend
+
+      - name: Lint Code (Optional)
+        run: npm run lint 2>/dev/null || echo "No lint script"
+        working-directory: ./frontend
+        continue-on-error: true
+
+      - name: Test Production Build
+        run: npm run build
+        working-directory: ./frontend
+
+
+  # ===== PowerShell Analysis (Windows) =====
+  powershell-analysis:
+    name: PowerShell Script Analysis
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Cache PowerShell Modules
+        id: ps-cache
+        uses: actions/cache@v4
+        with:
+          path: ~\Documents\PowerShell\Modules
+          key: ${{ runner.os }}-powershell-PSScriptAnalyzer
+
+      - name: Install PSScriptAnalyzer
+        if: steps.ps-cache.outputs.cache-hit != 'true'
+        shell: powershell
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -SkipPublisherCheck
+
+      - name: Run PSScriptAnalyzer
+        shell: powershell
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path 'scripts/Collect-Inventory.ps1' -Severity Error
+          if ($results.Count -gt 0) {
+            Write-Host "❌ PowerShell errors found:"
+            $results | ForEach-Object { Write-Host $_.Message }
+            exit 1
+          } else {
+            Write-Host "✅ PowerShell script is clean"
+          }
+
+
+  # ===== Security Scan =====
+  security-scan:
+    name: Security & Container Scan
+    if: contains(github.event.head_commit.message, 'scan') || contains(github.event.head_commit.message, 'SCAN')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Backend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          load: true
+          tags: itam-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Backend Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-backend:test'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build Frontend Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          load: true
+          tags: itam-frontend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Frontend Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-frontend:test'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Build Nginx Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nginx
+          load: true
+          tags: itam-nginx:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan Nginx Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-nginx:test'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+
+# ===== Docker Build & Push =====
+  docker-build-push:
+    name: Build & Push Docker Images
+    needs:
+      - backend-ci
+      - frontend-ci
+      - powershell-analysis
+    if: always() && !cancelled() && !failure() && (contains(github.event.head_commit.message, 'build') || contains(github.event.head_commit.message, 'BUILD'))
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-backend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-frontend:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push Nginx Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./nginx
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-nginx:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/itam-nginx:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          #fdef

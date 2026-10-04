@@ -7,38 +7,35 @@ on:
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 jobs:
-
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, linux, x64]
 
     steps:
-
       # ==========================================
       # Checkout
       # ==========================================
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-
       # ==========================================
       # Create Production Environment
       # ==========================================
       - name: Create Production .env
         env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
           IMAGE_TAG: ${{ github.sha }}
-
         run: |
           cat > .env <<EOF
+          DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
@@ -49,7 +46,6 @@ jobs:
 
           chmod 600 .env
 
-
       # ==========================================
       # Login to Docker Hub
       # ==========================================
@@ -58,7 +54,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
 
       # ==========================================
       # Pull Images
@@ -69,7 +64,6 @@ jobs:
             -f docker-compose.prod.yml \
             pull
 
-
       # ==========================================
       # Start PostgreSQL
       # ==========================================
@@ -78,7 +72,6 @@ jobs:
           docker compose \
             -f docker-compose.prod.yml \
             up -d postgres
-
 
       # ==========================================
       # Wait for PostgreSQL
@@ -103,7 +96,6 @@ jobs:
           docker logs itam_postgres
           exit 1
 
-
       # ==========================================
       # Run Prisma Migrations
       # ==========================================
@@ -114,7 +106,6 @@ jobs:
             run --rm backend \
             npx prisma migrate deploy
 
-
       # ==========================================
       # Start Application
       # ==========================================
@@ -123,7 +114,6 @@ jobs:
           docker compose \
             -f docker-compose.prod.yml \
             up -d
-
 
       # ==========================================
       # Check Containers

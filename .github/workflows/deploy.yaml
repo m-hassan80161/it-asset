@@ -41,7 +41,7 @@ jobs:
           POSTGRES_DB=${POSTGRES_DB}
           PGADMIN_EMAIL=${PGADMIN_EMAIL}
           PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
-          IMAGE_TAG=${IMAGE_TAG}
+          IMAGE_TAG=latest
           EOF
 
           chmod 600 .env

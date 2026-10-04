@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "ignoreDeprecations": "6.0", 
     "module": "commonjs",
     "declaration": false,
     "removeComments": true,
@@ -11,7 +10,6 @@
     "sourceMap": true,
     "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,

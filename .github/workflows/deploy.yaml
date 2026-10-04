@@ -56,13 +56,52 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ==========================================
-      # Pull Images
+      # Cache Docker Images (GitHub Actions Cache)
+      # ==========================================
+      - name: Cache Docker Images
+        id: cache-docker
+        uses: actions/cache@v4
+        with:
+          path: /tmp/docker-cache
+          key: ${{ runner.os }}-docker-${{ hashFiles('docker-compose.prod.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
+      # ==========================================
+      # Load Cached Images (If exists)
+      # ==========================================
+      - name: Load Cached Docker Images
+        if: steps.cache-docker.outputs.cache-hit == 'true'
+        run: |
+          echo "Loading cached images..."
+          for image in /tmp/docker-cache/*.tar; do
+            if [ -f "$image" ]; then
+              docker load -i "$image"
+            fi
+          done
+
+      # ==========================================
+      # Pull Production Images
       # ==========================================
       - name: Pull Production Images
         run: |
           docker compose \
             -f docker-compose.prod.yml \
             pull
+
+      # ==========================================
+      # Save Updated Images to Cache
+      # ==========================================
+      - name: Save Docker Images to Cache
+        if: steps.cache-docker.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/docker-cache
+          images=$(docker compose -f docker-compose.prod.yml config | grep 'image:' | awk '{print $2}' | sort -u)
+          for img in $images; do
+            filename=$(echo "$img" | tr '/:' '_').tar
+            echo "Saving $img to /tmp/docker-cache/$filename"
+            docker save "$img" -o "/tmp/docker-cache/$filename" || true
+          done
 
       # ==========================================
       # Start PostgreSQL

@@ -62,22 +62,17 @@ services:
 
 
   nginx:
-    image: nginx:alpine
-    container_name: itam_proxy
-    restart: unless-stopped
+      image: ${DOCKERHUB_USERNAME}/itam-nginx:${IMAGE_TAG}
+      container_name: itam_proxy
+      restart: unless-stopped
+      ports:
+        - "8080:80"
+      depends_on:
+        - frontend
+        - backend
 
-    ports:
-      - "8080:80"
-
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
-
-    depends_on:
-      - frontend
-      - backend
-
-    networks:
-      - itam_net
+      volumes:
+          - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
 
 
 networks:

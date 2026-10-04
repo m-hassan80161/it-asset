@@ -1,9 +1,10 @@
 services:
 
   postgres:
-    image: YOUR_DOCKERHUB_USERNAME/itam-postgres:16
+    image: postgres:16
     container_name: itam_postgres
     restart: unless-stopped
+    #fdd
 
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -28,7 +29,7 @@ services:
 
 
   backend:
-    image: YOUR_DOCKERHUB_USERNAME/itam-backend:${IMAGE_TAG}
+    image: ${{ secrets.DOCKERHUB_USERNAME }}/itam-backend:${IMAGE_TAG}
     container_name: itam_backend
     restart: unless-stopped
 
@@ -47,7 +48,7 @@ services:
 
 
   frontend:
-    image: YOUR_DOCKERHUB_USERNAME/itam-frontend:${IMAGE_TAG}
+    image: ${{ secrets.DOCKERHUB_USERNAME }}/itam-frontend:${IMAGE_TAG}
     container_name: itam_frontend
     restart: unless-stopped
 

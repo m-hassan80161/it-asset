@@ -244,3 +244,6 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/itam-nginx:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+
+          #dsfdf

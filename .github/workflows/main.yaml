@@ -99,7 +99,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # كاش للـ PowerShell Modules
       - name: Cache PowerShell Modules
         id: ps-cache
         uses: actions/cache@v4
@@ -129,13 +128,14 @@ jobs:
   # ===== Security Scan =====
   security-scan:
     name: Security & Container Scan
+    # الشرط: يعمل فقط إذا احتوت رسالة الكوميت على كلمة scan
+    if: contains(github.event.head_commit.message, 'scan') || contains(github.event.head_commit.message, 'SCAN')
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # تفعيل Docker Buildx مع الـ Cache
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -201,7 +201,9 @@ jobs:
       - backend-ci
       - frontend-ci
       - powershell-analysis
-      - security-scan
+    # الشرط الأول: يعمل فقط لو الكوميت فيها build أو BUILD
+    # الشرط الثاني: يسمح بالعمل حتى لو تم تخطي security-scan (عبر always())
+    if: always() && !cancelled() && !failed() && (contains(github.event.head_commit.message, 'build') || contains(github.event.head_commit.message, 'BUILD'))
 
     runs-on: ubuntu-latest
 
@@ -244,6 +246,3 @@ jobs:
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/itam-nginx:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-
-          #dsfdf

@@ -73,6 +73,8 @@ services:
 
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - itam_net
 
 
 networks:
@@ -83,3 +85,5 @@ networks:
 volumes:
   postgres_data:
     name: itam_postgres_data
+
+    #sdadj

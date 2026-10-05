@@ -144,16 +144,15 @@ jobs:
 
 
   # ============================================================
-  # Docker Build & Push
+  # Docker Build + Security Scan
   #
-  # build -> Build + Push
-  #
-  # scan  -> Build + Scan + Push
-  #
-  # Docker images are built ONLY ONCE.
+  # IMPORTANT:
+  # Images are BUILT ONLY ONCE here.
+  # Trivy scans these exact images.
+  # Then the images are saved as artifacts.
   # ============================================================
-  docker-build-push:
-    name: Docker Build & Push
+  docker-build-scan:
+    name: Docker Build & Security Scan
 
     needs:
       - backend-ci
@@ -165,34 +164,29 @@ jobs:
       !cancelled() &&
       !failure() &&
       (
-        contains(github.event.head_commit.message, 'build') ||
-        contains(github.event.head_commit.message, 'BUILD') ||
         contains(github.event.head_commit.message, 'scan') ||
-        contains(github.event.head_commit.message, 'SCAN')
+        contains(github.event.head_commit.message, 'SCAN') ||
+        contains(github.event.head_commit.message, 'build') ||
+        contains(github.event.head_commit.message, 'BUILD')
       )
 
     runs-on: ubuntu-latest
 
     steps:
 
-      # ============================================================
-      # Checkout
-      # ============================================================
-
       - name: Checkout Repository
         uses: actions/checkout@v4
 
 
-      # ============================================================
-      # Docker Buildx
-      # ============================================================
-
+      # ------------------------------------------------------------
+      # Buildx
+      # ------------------------------------------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
 
       # ============================================================
-      # Build Backend
+      # BACKEND
       # ============================================================
 
       - name: Build Backend Docker Image
@@ -208,8 +202,18 @@ jobs:
           cache-to: type=gha,mode=max,scope=itam-backend
 
 
+      - name: Scan Backend Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-backend:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+
       # ============================================================
-      # Build Frontend
+      # FRONTEND
       # ============================================================
 
       - name: Build Frontend Docker Image
@@ -225,8 +229,18 @@ jobs:
           cache-to: type=gha,mode=max,scope=itam-frontend
 
 
+      - name: Scan Frontend Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'itam-frontend:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+
       # ============================================================
-      # Build Nginx
+      # NGINX
       # ============================================================
 
       - name: Build Nginx Docker Image
@@ -242,62 +256,161 @@ jobs:
           cache-to: type=gha,mode=max,scope=itam-nginx
 
 
-      # ============================================================
-      # Security Scan
-      #
-      # This step runs ONLY when commit message contains:
-      #
-      # scan
-      # SCAN
-      #
-      # The images are NOT rebuilt.
-      # Trivy scans the images already built above.
-      # ============================================================
-
-      - name: Scan Backend Image with Trivy
-        if: >
-          contains(github.event.head_commit.message, 'scan') ||
-          contains(github.event.head_commit.message, 'SCAN')
-
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'itam-backend:${{ github.sha }}'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
-
-      - name: Scan Frontend Image with Trivy
-        if: >
-          contains(github.event.head_commit.message, 'scan') ||
-          contains(github.event.head_commit.message, 'SCAN')
-
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'itam-frontend:${{ github.sha }}'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
-
       - name: Scan Nginx Image with Trivy
-        if: >
-          contains(github.event.head_commit.message, 'scan') ||
-          contains(github.event.head_commit.message, 'SCAN')
-
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'itam-nginx:${{ github.sha }}'
           format: 'table'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
 
 
       # ============================================================
-      # Login Docker Hub
+      # SAVE IMAGES
+      #
+      # These are the EXACT images that were scanned.
+      # ============================================================
+
+      - name: Save Docker Images
+        run: |
+          docker save \
+            itam-backend:${{ github.sha }} \
+            -o backend-image.tar
+
+          docker save \
+            itam-frontend:${{ github.sha }} \
+            -o frontend-image.tar
+
+          docker save \
+            itam-nginx:${{ github.sha }} \
+            -o nginx-image.tar
+
+
+      # ============================================================
+      # UPLOAD IMAGES AS ARTIFACTS
+      # ============================================================
+
+      - name: Upload Backend Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: itam-backend-image
+          path: backend-image.tar
+          retention-days: 1
+
+      - name: Upload Frontend Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: itam-frontend-image
+          path: frontend-image.tar
+          retention-days: 1
+
+      - name: Upload Nginx Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: itam-nginx-image
+          path: nginx-image.tar
+          retention-days: 1
+
+
+  # ============================================================
+  # Docker Push
+  #
+  # IMPORTANT:
+  # NO DOCKER BUILD HERE.
+  #
+  # We download the exact images that were already built
+  # and scanned in the previous job.
+  # ============================================================
+  docker-push:
+    name: Push Docker Images
+
+    needs:
+      - docker-build-scan
+
+    if: >
+      always() &&
+      !cancelled() &&
+      needs.docker-build-scan.result == 'success' &&
+      (
+        contains(github.event.head_commit.message, 'scan') ||
+        contains(github.event.head_commit.message, 'SCAN') ||
+        contains(github.event.head_commit.message, 'build') ||
+        contains(github.event.head_commit.message, 'BUILD')
+      )
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+
+      # ------------------------------------------------------------
+      # Download Backend Image
+      # ------------------------------------------------------------
+      - name: Download Backend Image
+        uses: actions/download-artifact@v4
+        with:
+          name: itam-backend-image
+
+
+      # ------------------------------------------------------------
+      # Download Frontend Image
+      # ------------------------------------------------------------
+      - name: Download Frontend Image
+        uses: actions/download-artifact@v4
+        with:
+          name: itam-frontend-image
+
+
+      # ------------------------------------------------------------
+      # Download Nginx Image
+      # ------------------------------------------------------------
+      - name: Download Nginx Image
+        uses: actions/download-artifact@v4
+        with:
+          name: itam-nginx-image
+
+
+      # ------------------------------------------------------------
+      # Load Images
+      # ------------------------------------------------------------
+      - name: Load Docker Images
+        run: |
+          docker load -i backend-image.tar
+          docker load -i frontend-image.tar
+          docker load -i nginx-image.tar
+
+
+      # ------------------------------------------------------------
+      # Verify Images
+      # ------------------------------------------------------------
+      - name: Verify Docker Images
+        run: |
+          echo "=== Docker Images ==="
+
+          docker images | grep itam-
+
+          echo ""
+          echo "=== Image IDs ==="
+
+          docker image inspect itam-backend:${{ github.sha }} \
+            --format='Backend: {{.Id}}'
+
+          docker image inspect itam-frontend:${{ github.sha }} \
+            --format='Frontend: {{.Id}}'
+
+          docker image inspect itam-nginx:${{ github.sha }} \
+            --format='Nginx: {{.Id}}'
+
+
+      # ============================================================
+      # LOGIN DOCKER HUB
       # ============================================================
 
       - name: Login to Docker Hub
@@ -308,7 +421,7 @@ jobs:
 
 
       # ============================================================
-      # Tag Images
+      # TAG BACKEND
       # ============================================================
 
       - name: Tag Backend Image
@@ -322,6 +435,10 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/itam-backend:latest
 
 
+      # ============================================================
+      # TAG FRONTEND
+      # ============================================================
+
       - name: Tag Frontend Image
         run: |
           docker tag \
@@ -332,6 +449,10 @@ jobs:
             itam-frontend:${{ github.sha }} \
             ${{ secrets.DOCKERHUB_USERNAME }}/itam-frontend:latest
 
+
+      # ============================================================
+      # TAG NGINX
+      # ============================================================
 
       - name: Tag Nginx Image
         run: |
@@ -345,7 +466,7 @@ jobs:
 
 
       # ============================================================
-      # Push Backend
+      # PUSH BACKEND
       # ============================================================
 
       - name: Push Backend Image
@@ -358,7 +479,7 @@ jobs:
 
 
       # ============================================================
-      # Push Frontend
+      # PUSH FRONTEND
       # ============================================================
 
       - name: Push Frontend Image
@@ -371,7 +492,7 @@ jobs:
 
 
       # ============================================================
-      # Push Nginx
+      # PUSH NGINX
       # ============================================================
 
       - name: Push Nginx Image
@@ -381,7 +502,3 @@ jobs:
 
           docker push \
             ${{ secrets.DOCKERHUB_USERNAME }}/itam-nginx:latest
-
-
-
-

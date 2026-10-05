@@ -1,7 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
-import { SoftwareComplianceService } from "../software-compliance/software-compliance.service";
 
 @Injectable()
 export class InventoryService {
@@ -9,7 +8,6 @@ export class InventoryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly compliance: SoftwareComplianceService,
   ) {}
 
   /**
@@ -86,9 +84,6 @@ export class InventoryService {
 
     // Software is handled outside the main transaction because the
     // delta-detector needs to compare against ALL devices, not just this one.
-    if (payload.software?.length) {
-      await this.compliance.reconcileDeviceSoftware(device.id, payload.software);
-    }
 
     this.logger.log(`Ingested inventory for ${device.computerName}`);
     return { deviceId: device.id, status: "ok" };

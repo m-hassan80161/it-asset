@@ -1,10 +1,8 @@
 import { Module } from "@nestjs/common";
 import { InventoryController } from "./inventory.controller";
 import { InventoryService } from "./inventory.service";
-import { SoftwareComplianceModule } from "../software-compliance/software-compliance.module";
 
 @Module({
-  imports: [SoftwareComplianceModule],
   controllers: [InventoryController],
   providers: [InventoryService],
 })

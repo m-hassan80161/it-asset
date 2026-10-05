@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { inventoryApi, complianceApi, adApi } from "../lib/api";
+import { inventoryApi,  adApi } from "../lib/api";
 import { AlertCircle, Users, HardDrive, AlertTriangle } from "lucide-react";
 
 export function Home() {
@@ -15,9 +15,9 @@ export function Home() {
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const [devicesRes, alertsRes, usersRes] = await Promise.all([
+        const [devicesRes, alertsRes] = await Promise.all([
           inventoryApi.list(0, 999),
-          complianceApi.alerts(),
+          // complianceApi.alerts(),
           adApi.listUsers(false),
         ]);
 
@@ -29,7 +29,7 @@ export function Home() {
           deviceCount: devicesRes.data.length,
           nonCompliantCount: nonCompliant,
           openAlerts: alertsRes.data.length,
-          userCount: usersRes.data.length,
+          userCount: 0,
         });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load stats");

@@ -16,9 +16,6 @@ export default function App() {
           <Link to="/devices" className="hover:text-blue-100">
             Devices
           </Link>
-          <Link to="/compliance" className="hover:text-blue-100">
-            Compliance Alerts
-          </Link>
           <Link to="/onboarding" className="hover:text-blue-100">
             Onboarding
           </Link>

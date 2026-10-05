@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { inventoryApi } from "../lib/api";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -118,7 +118,6 @@ export function DeviceDetail() {
                 <tr>
                   <th className="text-left px-4 py-2">Name</th>
                   <th className="text-left px-4 py-2">Version</th>
-                  <th className="text-left px-4 py-2">Status</th>
                   <th className="text-left px-4 py-2">Publisher</th>
                 </tr>
               </thead>
@@ -127,43 +126,11 @@ export function DeviceDetail() {
                   <tr key={i} className="border-b hover:bg-slate-50">
                     <td className="px-4 py-2">{sw.name}</td>
                     <td className="px-4 py-2">{sw.version}</td>
-                    <td className="px-4 py-2">
-                      {sw.complianceStatus === "UP_TO_DATE" && (
-                        <span className="text-green-600 font-medium">✓ OK</span>
-                      )}
-                      {sw.complianceStatus === "OUTDATED" && (
-                        <span className="text-orange-600 font-medium">⚠ Outdated</span>
-                      )}
-                      {sw.complianceStatus === "MISSING" && (
-                        <span className="text-red-600 font-medium">✗ Missing</span>
-                      )}
-                    </td>
                     <td className="px-4 py-2 text-slate-600">{sw.publisher || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Compliance Alerts */}
-      {device.complianceAlerts?.length > 0 && (
-        <div className="bg-white p-6 rounded shadow mt-6 border-l-4 border-red-600">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            Compliance Alerts
-          </h2>
-          <div className="space-y-3">
-            {device.complianceAlerts.map((alert: any, i: number) => (
-              <div key={i} className="bg-red-50 p-3 rounded text-sm">
-                <div className="font-medium text-red-900">{alert.softwareName}</div>
-                <div className="text-red-800">{alert.message}</div>
-                <div className="text-red-600 text-xs mt-1">
-                  {new Date(alert.createdAt).toLocaleString()}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}

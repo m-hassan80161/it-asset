@@ -31,8 +31,6 @@ export const fileServerApi = {
   listDepartments: () => api.get("/file-server/departments"),
 };
 
-
-
 export const onboardingApi = {
   start: (dto: any) => api.post("/onboarding", dto),
   list: (skip = 0, take = 20, status?: string) =>

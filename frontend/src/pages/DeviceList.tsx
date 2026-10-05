@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { inventoryApi } from "../lib/api";
-import { ChevronRight, AlertTriangle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 interface Device {
   id: string;
@@ -10,7 +10,6 @@ interface Device {
   osName?: string;
   osVersion?: string;
   lastSeenAt: string;
-  _count?: { complianceAlerts: number };
 }
 
 export function DeviceList() {
@@ -37,13 +36,13 @@ export function DeviceList() {
     loadDevices();
   }, [skip]);
 
-  if (loading) return <div>Loading devices...</div>;
+  if (loading) return <div className="p-4">Loading devices...</div>;
 
   return (
-    <div>
+    <div className="p-6">
       <h1 className="text-3xl font-bold mb-6">Managed Devices</h1>
 
-      {error && <div className="text-red-600 mb-4">{error}</div>}
+      {error && <div className="bg-red-100 text-red-700 p-4 rounded mb-4">{error}</div>}
 
       <div className="bg-white rounded shadow overflow-hidden">
         <table className="w-full">
@@ -53,7 +52,6 @@ export function DeviceList() {
               <th className="text-left px-6 py-3">User</th>
               <th className="text-left px-6 py-3">OS</th>
               <th className="text-left px-6 py-3">Last Seen</th>
-              <th className="text-center px-6 py-3">Alerts</th>
               <th className="text-center px-6 py-3">Action</th>
             </tr>
           </thead>
@@ -69,16 +67,6 @@ export function DeviceList() {
                 </td>
                 <td className="px-6 py-4 text-sm text-slate-500">
                   {new Date(device.lastSeenAt).toLocaleDateString()}
-                </td>
-                <td className="px-6 py-4">
-                  {device._count?.complianceAlerts ? (
-                    <span className="flex items-center justify-center gap-1 bg-red-100 text-red-800 px-3 py-1 rounded text-sm font-medium">
-                      <AlertTriangle className="w-4 h-4" />
-                      {device._count.complianceAlerts}
-                    </span>
-                  ) : (
-                    <span className="text-green-600 font-medium">✓ OK</span>
-                  )}
                 </td>
                 <td className="px-6 py-4 text-center">
                   <button

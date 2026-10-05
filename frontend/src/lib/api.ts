@@ -8,9 +8,12 @@ const api = axios.create({
 });
 
 export const inventoryApi = {
-  list: (skip = 0, take = 50) =>
-    api.get("/inventory", { params: { skip, take } }),
+  list: (skip = 0, take = 50, softwareName = "") =>
+    api.get("/inventory", {
+      params: { skip, take, softwareName: softwareName || undefined },
+    }),
   detail: (id: string) => api.get(`/inventory/${id}`),
+  remove: (id: string) => api.delete(`/inventory/${id}`),
   ingest: (payload: any) => api.post("/inventory", payload),
 };
 

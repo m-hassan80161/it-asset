@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
 
@@ -129,17 +134,37 @@ export class InventoryService {
     return date;
   }
 
-  async listDevices(params: { skip?: number; take?: number } = {}) {
+  async listDevices(
+    params: { skip?: number; take?: number; softwareName?: string } = {},
+  ) {
+    const softwareName = params.softwareName?.trim();
     return this.prisma.device.findMany({
       skip: params.skip ?? 0,
       take: params.take ?? 50,
       orderBy: { lastSeenAt: "desc" },
+      where: softwareName
+        ? {
+            software: {
+              some: {
+                name: { contains: softwareName, mode: "insensitive" },
+              },
+            },
+          }
+        : undefined,
       include: {
         cpu: true,
         disks: true,
         software: true,
       },
     });
+  }
+
+  async deleteDevice(id: string) {
+    const result = await this.prisma.device.deleteMany({ where: { id } });
+    if (result.count === 0) {
+      throw new NotFoundException(`Device ${id} was not found`);
+    }
+    return { id, status: "deleted" };
   }
 
   async getDeviceDetail(id: string) {

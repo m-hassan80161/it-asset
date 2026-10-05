@@ -78,43 +78,136 @@ jobs:
       # ==========================================
       - name: Wait for PostgreSQL
         run: |
-          echo "Waiting for PostgreSQL..."
-
+          echo "Waiting for PostgreSQL to be healthy..."
+          
           for i in {1..30}; do
             if docker inspect \
               --format='{{.State.Health.Status}}' \
               itam_postgres 2>/dev/null | grep -q healthy
             then
-              echo "PostgreSQL is healthy"
+              echo "✅ PostgreSQL is healthy"
               exit 0
             fi
-
+            
+            echo "Attempt $i/30... waiting..."
             sleep 2
           done
-
-          echo "PostgreSQL failed health check"
+          
+          echo "❌ PostgreSQL failed health check"
           docker logs itam_postgres
           exit 1
 
       # ==========================================
-      # Run Prisma Migrations
+      # Start Backend
       # ==========================================
-      
+      - name: Start Backend Service
+        run: |
+          docker compose \
+            -f docker-compose.prod.yml \
+            up -d backend
 
       # ==========================================
-      # Start Application
+      # Wait for Backend to be ready
       # ==========================================
-      - name: Start Application
+      - name: Wait for Backend Container
         run: |
+          echo "Waiting for backend container to be ready..."
+          
+          for i in {1..20}; do
+            if docker inspect \
+              --format='{{.State.Running}}' \
+              itam_backend 2>/dev/null | grep -q true
+            then
+              echo "✅ Backend container is running"
+              sleep 2
+              exit 0
+            fi
+            
+            echo "Attempt $i/20... waiting..."
+            sleep 1
+          done
+          
+          echo "❌ Backend container failed to start"
+          docker logs itam_backend
+          exit 1
+
+      # ==========================================
+      # Run Prisma Migrations (للـ schema updates)
+      # ==========================================
+      - name: Run Prisma Migrations
+        run: |
+          echo "Running Prisma migrations..."
+          
+          docker compose \
+            -f docker-compose.prod.yml \
+            exec -T backend \
+            npx prisma migrate deploy
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Migrations completed successfully"
+          else
+            echo "❌ Migrations failed"
+            exit 1
+          fi
+
+      # ==========================================
+      # Start All Services
+      # ==========================================
+      - name: Start All Services
+        run: |
+          echo "Starting all services..."
+          
           docker compose \
             -f docker-compose.prod.yml \
             up -d
+          
+          echo "✅ All services started"
 
       # ==========================================
-      # Check Containers
+      # Check Deployment
       # ==========================================
-      - name: Check Deployment
+      - name: Check Deployment Status
         run: |
+          echo "Checking deployment status..."
+          
           docker compose \
             -f docker-compose.prod.yml \
             ps
+          
+          echo "Waiting for services to stabilize..."
+          sleep 5
+          
+          # Check backend health
+          if docker compose \
+            -f docker-compose.prod.yml \
+            exec -T backend curl -f http://localhost:3000/api/health 2>/dev/null
+          then
+            echo "✅ Backend is healthy"
+          else
+            echo "⚠️ Backend might still be initializing"
+          fi
+
+      # ==========================================
+      # Show Logs (عند الفشل)
+      # ==========================================
+      - name: Show Deployment Logs
+        if: failure()
+        run: |
+          echo "=== Backend Logs ==="
+          docker compose -f docker-compose.prod.yml logs backend --tail=50
+          
+          echo -e "\n=== Database Logs ==="
+          docker compose -f docker-compose.prod.yml logs postgres --tail=50
+          
+          echo -e "\n=== Frontend Logs ==="
+          docker compose -f docker-compose.prod.yml logs frontend --tail=50
+
+      # ==========================================
+      # Notify Success
+      # ==========================================
+      - name: Deployment Success
+        if: success()
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Backend: http://localhost:3000"
+          echo "Frontend: http://localhost"

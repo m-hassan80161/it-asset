@@ -3,7 +3,7 @@ import { Home } from "./pages/Home";
 import { DeviceList } from "./pages/DeviceList";
 import { DeviceDetail } from "./pages/DeviceDetail";
 import { OnboardingWizard } from "./pages/OnboardingWizard";
-import { ComplianceAlerts } from "./pages/ComplianceAlerts";
+
 
 export default function App() {
   return (
@@ -30,7 +30,6 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/devices" element={<DeviceList />} />
           <Route path="/devices/:id" element={<DeviceDetail />} />
-          <Route path="/compliance" element={<ComplianceAlerts />} />
           <Route path="/onboarding" element={<OnboardingWizard />} />
         </Routes>
       </main>

@@ -31,16 +31,7 @@ export const fileServerApi = {
   listDepartments: () => api.get("/file-server/departments"),
 };
 
-export const complianceApi = {
-  masterList: () => api.get("/software-compliance/master-list"),
-  upsertMaster: (name: string, minRequiredVersion: string, isMandatory = false) =>
-    api.post("/software-compliance/master-list", {
-      name,
-      minRequiredVersion,
-      isMandatory,
-    }),
-  alerts: () => api.get("/software-compliance/alerts"),
-};
+
 
 export const onboardingApi = {
   start: (dto: any) => api.post("/onboarding", dto),

@@ -90,12 +90,6 @@ model DiskDrive {
   @@index([deviceId])
 }
 
-enum ComplianceStatus {
-  UP_TO_DATE
-  OUTDATED
-  MISSING
-  NOT_TRACKED
-}
 
 model InstalledSoftware {
   id               String            @id @default(uuid())

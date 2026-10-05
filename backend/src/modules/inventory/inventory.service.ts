@@ -97,7 +97,6 @@ export class InventoryService {
       include: {
         cpu: true,
         disks: true,
-        _count: { select: { complianceAlerts: { where: { resolved: false } } } },
       },
     });
   }

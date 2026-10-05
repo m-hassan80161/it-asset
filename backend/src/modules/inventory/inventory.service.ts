@@ -110,9 +110,7 @@ export class InventoryService {
         motherboard: true,
         ramModules: true,
         disks: true,
-        software: { include: { masterSoftware: true } },
         gitConfig: true,
-        complianceAlerts: { where: { resolved: false }, orderBy: { createdAt: "desc" } },
       },
     });
   }

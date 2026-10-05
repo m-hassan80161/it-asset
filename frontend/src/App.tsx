@@ -3,6 +3,7 @@ import { Home } from "./pages/Home";
 import { DeviceList } from "./pages/DeviceList";
 import { DeviceDetail } from "./pages/DeviceDetail";
 import { OnboardingWizard } from "./pages/OnboardingWizard";
+import { SoftwareInventory } from "./pages/SoftwareInventory";
 
 
 export default function App() {
@@ -16,6 +17,9 @@ export default function App() {
           <Link to="/devices" className="hover:text-blue-100">
             Devices
           </Link>
+          <Link to="/software" className="hover:text-blue-100">
+            Software
+          </Link>
           <Link to="/onboarding" className="hover:text-blue-100">
             Onboarding
           </Link>
@@ -27,6 +31,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/devices" element={<DeviceList />} />
           <Route path="/devices/:id" element={<DeviceDetail />} />
+          <Route path="/software" element={<SoftwareInventory />} />
           <Route path="/onboarding" element={<OnboardingWizard />} />
         </Routes>
       </main>

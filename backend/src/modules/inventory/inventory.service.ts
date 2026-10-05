@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
 
@@ -71,6 +71,19 @@ export class InventoryService {
         });
       }
 
+      await tx.installedSoftware.deleteMany({ where: { deviceId: dev.id } });
+      if (payload.software?.length) {
+        await tx.installedSoftware.createMany({
+          data: payload.software.map((item) => ({
+            deviceId: dev.id,
+            name: item.name,
+            version: item.version,
+            publisher: item.publisher,
+            installDate: this.parseInstallDate(item.installDate),
+          })),
+        });
+      }
+
       if (payload.gitConfig) {
         await tx.gitConfig.upsert({
           where: { deviceId: dev.id },
@@ -82,11 +95,38 @@ export class InventoryService {
       return dev;
     });
 
-    // Software is handled outside the main transaction because the
-    // delta-detector needs to compare against ALL devices, not just this one.
-
     this.logger.log(`Ingested inventory for ${device.computerName}`);
     return { deviceId: device.id, status: "ok" };
+  }
+
+  private parseInstallDate(value?: string): Date | undefined {
+    if (!value) return undefined;
+
+    const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
+    const date = compactDate
+      ? new Date(
+          Date.UTC(
+            Number(compactDate[1]),
+            Number(compactDate[2]) - 1,
+            Number(compactDate[3]),
+          ),
+        )
+      : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`Invalid software install date: ${value}`);
+    }
+
+    if (
+      compactDate &&
+      (date.getUTCFullYear() !== Number(compactDate[1]) ||
+        date.getUTCMonth() !== Number(compactDate[2]) - 1 ||
+        date.getUTCDate() !== Number(compactDate[3]))
+    ) {
+      throw new BadRequestException(`Invalid software install date: ${value}`);
+    }
+
+    return date;
   }
 
   async listDevices(params: { skip?: number; take?: number } = {}) {
@@ -97,6 +137,7 @@ export class InventoryService {
       include: {
         cpu: true,
         disks: true,
+        software: true,
       },
     });
   }
@@ -109,6 +150,7 @@ export class InventoryService {
         motherboard: true,
         ramModules: true,
         disks: true,
+        software: true,
         gitConfig: true,
       },
     });

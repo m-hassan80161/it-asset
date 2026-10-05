@@ -1,7 +1,11 @@
-import { Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
-import { SoftwareComplianceService } from "../software-compliance/software-compliance.service";
 
 @Injectable()
 export class InventoryService {
@@ -9,7 +13,6 @@ export class InventoryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly compliance: SoftwareComplianceService,
   ) {}
 
   /**
@@ -73,6 +76,19 @@ export class InventoryService {
         });
       }
 
+      await tx.installedSoftware.deleteMany({ where: { deviceId: dev.id } });
+      if (payload.software?.length) {
+        await tx.installedSoftware.createMany({
+          data: payload.software.map((item) => ({
+            deviceId: dev.id,
+            name: item.name,
+            version: item.version,
+            publisher: item.publisher,
+            installDate: this.parseInstallDate(item.installDate),
+          })),
+        });
+      }
+
       if (payload.gitConfig) {
         await tx.gitConfig.upsert({
           where: { deviceId: dev.id },
@@ -84,27 +100,71 @@ export class InventoryService {
       return dev;
     });
 
-    // Software is handled outside the main transaction because the
-    // delta-detector needs to compare against ALL devices, not just this one.
-    if (payload.software?.length) {
-      await this.compliance.reconcileDeviceSoftware(device.id, payload.software);
-    }
-
     this.logger.log(`Ingested inventory for ${device.computerName}`);
     return { deviceId: device.id, status: "ok" };
   }
 
-  async listDevices(params: { skip?: number; take?: number } = {}) {
+  private parseInstallDate(value?: string): Date | undefined {
+    if (!value) return undefined;
+
+    const compactDate = /^(\d{4})(\d{2})(\d{2})$/.exec(value);
+    const date = compactDate
+      ? new Date(
+          Date.UTC(
+            Number(compactDate[1]),
+            Number(compactDate[2]) - 1,
+            Number(compactDate[3]),
+          ),
+        )
+      : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(`Invalid software install date: ${value}`);
+    }
+
+    if (
+      compactDate &&
+      (date.getUTCFullYear() !== Number(compactDate[1]) ||
+        date.getUTCMonth() !== Number(compactDate[2]) - 1 ||
+        date.getUTCDate() !== Number(compactDate[3]))
+    ) {
+      throw new BadRequestException(`Invalid software install date: ${value}`);
+    }
+
+    return date;
+  }
+
+  async listDevices(
+    params: { skip?: number; take?: number; softwareName?: string } = {},
+  ) {
+    const softwareName = params.softwareName?.trim();
     return this.prisma.device.findMany({
       skip: params.skip ?? 0,
       take: params.take ?? 50,
       orderBy: { lastSeenAt: "desc" },
+      where: softwareName
+        ? {
+            software: {
+              some: {
+                name: { contains: softwareName, mode: "insensitive" },
+              },
+            },
+          }
+        : undefined,
       include: {
         cpu: true,
         disks: true,
-        _count: { select: { complianceAlerts: { where: { resolved: false } } } },
+        software: true,
       },
     });
+  }
+
+  async deleteDevice(id: string) {
+    const result = await this.prisma.device.deleteMany({ where: { id } });
+    if (result.count === 0) {
+      throw new NotFoundException(`Device ${id} was not found`);
+    }
+    return { id, status: "deleted" };
   }
 
   async getDeviceDetail(id: string) {
@@ -115,9 +175,8 @@ export class InventoryService {
         motherboard: true,
         ramModules: true,
         disks: true,
-        software: { include: { masterSoftware: true } },
+        software: true,
         gitConfig: true,
-        complianceAlerts: { where: { resolved: false }, orderBy: { createdAt: "desc" } },
       },
     });
   }

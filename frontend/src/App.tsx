@@ -3,7 +3,8 @@ import { Home } from "./pages/Home";
 import { DeviceList } from "./pages/DeviceList";
 import { DeviceDetail } from "./pages/DeviceDetail";
 import { OnboardingWizard } from "./pages/OnboardingWizard";
-import { ComplianceAlerts } from "./pages/ComplianceAlerts";
+import { SoftwareInventory } from "./pages/SoftwareInventory";
+
 
 export default function App() {
   return (
@@ -16,8 +17,8 @@ export default function App() {
           <Link to="/devices" className="hover:text-blue-100">
             Devices
           </Link>
-          <Link to="/compliance" className="hover:text-blue-100">
-            Compliance Alerts
+          <Link to="/software" className="hover:text-blue-100">
+            Software
           </Link>
           <Link to="/onboarding" className="hover:text-blue-100">
             Onboarding
@@ -30,7 +31,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/devices" element={<DeviceList />} />
           <Route path="/devices/:id" element={<DeviceDetail />} />
-          <Route path="/compliance" element={<ComplianceAlerts />} />
+          <Route path="/software" element={<SoftwareInventory />} />
           <Route path="/onboarding" element={<OnboardingWizard />} />
         </Routes>
       </main>

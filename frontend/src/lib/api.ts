@@ -8,9 +8,12 @@ const api = axios.create({
 });
 
 export const inventoryApi = {
-  list: (skip = 0, take = 50) =>
-    api.get("/inventory", { params: { skip, take } }),
+  list: (skip = 0, take = 50, softwareName = "") =>
+    api.get("/inventory", {
+      params: { skip, take, softwareName: softwareName || undefined },
+    }),
   detail: (id: string) => api.get(`/inventory/${id}`),
+  remove: (id: string) => api.delete(`/inventory/${id}`),
   ingest: (payload: any) => api.post("/inventory", payload),
 };
 
@@ -29,17 +32,6 @@ export const adApi = {
 export const fileServerApi = {
   discoverDepartments: () => api.post("/file-server/discover-departments"),
   listDepartments: () => api.get("/file-server/departments"),
-};
-
-export const complianceApi = {
-  masterList: () => api.get("/software-compliance/master-list"),
-  upsertMaster: (name: string, minRequiredVersion: string, isMandatory = false) =>
-    api.post("/software-compliance/master-list", {
-      name,
-      minRequiredVersion,
-      isMandatory,
-    }),
-  alerts: () => api.get("/software-compliance/alerts"),
 };
 
 export const onboardingApi = {

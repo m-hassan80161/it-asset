@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { inventoryApi } from "../lib/api";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -9,6 +9,7 @@ export function DeviceDetail() {
   const [device, setDevice] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [softwareSearch, setSoftwareSearch] = useState("");
 
   useEffect(() => {
     const loadDevice = async () => {
@@ -32,6 +33,11 @@ export function DeviceDetail() {
   if (loading) return <div>Loading device details...</div>;
   if (error) return <div className="text-red-600">{error}</div>;
   if (!device) return <div>Device not found</div>;
+
+  const installedSoftware = device.installedSoftware ?? device.software ?? [];
+  const filteredSoftware = installedSoftware.filter((sw: any) =>
+    sw.name.toLocaleLowerCase().includes(softwareSearch.trim().toLocaleLowerCase()),
+  );
 
   return (
     <div>
@@ -109,64 +115,52 @@ export function DeviceDetail() {
       </div>
 
       {/* Software */}
-      {device.software?.length > 0 && (
-        <div className="bg-white p-6 rounded shadow mt-6">
+      <div className="bg-white p-6 rounded shadow mt-6">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-xl font-semibold mb-4">Installed Software</h2>
+          <label className="relative block sm:w-80">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              value={softwareSearch}
+              onChange={(event) => setSoftwareSearch(event.target.value)}
+              placeholder="Search this device's software..."
+              className="w-full rounded border border-slate-300 bg-white py-2 pl-9 pr-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+            />
+          </label>
+        </div>
+        {installedSoftware.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-100">
                 <tr>
                   <th className="text-left px-4 py-2">Name</th>
                   <th className="text-left px-4 py-2">Version</th>
-                  <th className="text-left px-4 py-2">Status</th>
                   <th className="text-left px-4 py-2">Publisher</th>
                 </tr>
               </thead>
               <tbody>
-                {device.software.map((sw: any, i: number) => (
+                {filteredSoftware.map((sw: any, i: number) => (
                   <tr key={i} className="border-b hover:bg-slate-50">
                     <td className="px-4 py-2">{sw.name}</td>
                     <td className="px-4 py-2">{sw.version}</td>
-                    <td className="px-4 py-2">
-                      {sw.complianceStatus === "UP_TO_DATE" && (
-                        <span className="text-green-600 font-medium">✓ OK</span>
-                      )}
-                      {sw.complianceStatus === "OUTDATED" && (
-                        <span className="text-orange-600 font-medium">⚠ Outdated</span>
-                      )}
-                      {sw.complianceStatus === "MISSING" && (
-                        <span className="text-red-600 font-medium">✗ Missing</span>
-                      )}
-                    </td>
                     <td className="px-4 py-2 text-slate-600">{sw.publisher || "—"}</td>
                   </tr>
                 ))}
+                {filteredSoftware.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
+                      No matching software found on this device.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Compliance Alerts */}
-      {device.complianceAlerts?.length > 0 && (
-        <div className="bg-white p-6 rounded shadow mt-6 border-l-4 border-red-600">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            Compliance Alerts
-          </h2>
-          <div className="space-y-3">
-            {device.complianceAlerts.map((alert: any, i: number) => (
-              <div key={i} className="bg-red-50 p-3 rounded text-sm">
-                <div className="font-medium text-red-900">{alert.softwareName}</div>
-                <div className="text-red-800">{alert.message}</div>
-                <div className="text-red-600 text-xs mt-1">
-                  {new Date(alert.createdAt).toLocaleString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+        ) : (
+          <p className="py-6 text-center text-slate-500">No software is recorded for this device.</p>
+        )}
+      </div>
     </div>
   );
 }

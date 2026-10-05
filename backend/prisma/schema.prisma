@@ -34,7 +34,6 @@ model Device {
   disks         DiskDrive[]
   software      InstalledSoftware[]
   gitConfig     GitConfig?
-  complianceAlerts ComplianceAlert[]
 
   @@index([computerName])
 }
@@ -90,55 +89,19 @@ model DiskDrive {
   @@index([deviceId])
 }
 
-enum ComplianceStatus {
-  UP_TO_DATE
-  OUTDATED
-  MISSING
-  NOT_TRACKED
-}
-
 model InstalledSoftware {
-  id               String            @id @default(uuid())
-  deviceId         String
-  device           Device            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  name             String
-  version          String
-  publisher        String?
-  installDate      DateTime?
-  masterSoftwareId String?
-  masterSoftware   MasterSoftware?   @relation(fields: [masterSoftwareId], references: [id])
-  complianceStatus ComplianceStatus  @default(NOT_TRACKED)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id          String   @id @default(uuid())
+  deviceId    String
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name        String
+  version     String
+  publisher   String?
+  installDate DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([deviceId])
   @@index([name])
-}
-
-// Baseline/master list of software + minimum required version (admin managed)
-model MasterSoftware {
-  id                String               @id @default(uuid())
-  name              String               @unique
-  minRequiredVersion String
-  isMandatory       Boolean              @default(false)
-  installations     InstalledSoftware[]
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-}
-
-// Delta-update detector alerts: "Device X upgraded App to version Y, N others still old"
-model ComplianceAlert {
-  id            String   @id @default(uuid())
-  deviceId      String
-  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  softwareName  String
-  newVersion    String
-  message       String
-  laggingCount  Int
-  resolved      Boolean  @default(false)
-  createdAt     DateTime @default(now())
-
-  @@index([deviceId])
 }
 
 model GitConfig {

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+} from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { InventoryService } from "./inventory.service";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
@@ -15,11 +23,21 @@ export class InventoryController {
   }
 
   @Get()
-  list(@Query("skip") skip?: string, @Query("take") take?: string) {
+  list(
+    @Query("skip") skip?: string,
+    @Query("take") take?: string,
+    @Query("softwareName") softwareName?: string,
+  ) {
     return this.inventoryService.listDevices({
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
+      softwareName,
     });
+  }
+
+  @Delete(":id")
+  remove(@Param("id") id: string) {
+    return this.inventoryService.deleteDevice(id);
   }
 
   @Get(":id")

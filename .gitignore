@@ -51,6 +51,7 @@ coverage/
 .docker/
 docker-compose.override.yml
 .dockerignore
+nginx/certs/
 
 # Process managers
 .pm2/

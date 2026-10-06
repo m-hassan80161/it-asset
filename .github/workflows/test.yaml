@@ -4,6 +4,7 @@ on:
   push:
     branches: [ "devolp" ]
 
+
 jobs:
 
   # ============================================================
@@ -63,6 +64,7 @@ jobs:
         run: npm run test -- --passWithNoTests
         working-directory: ./backend
 
+
   # ============================================================
   # Frontend CI
   # ============================================================
@@ -96,35 +98,7 @@ jobs:
         working-directory: ./frontend
 
 
-  # ============================================================
-  # Nginx TLS Configuration Validation
-  # ============================================================
-  nginx-tls-check:
-    name: Nginx TLS Configuration
-    runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Validate Nginx TLS Configuration
-        run: |
-          set -euo pipefail
-          cert_dir="$(mktemp -d "${GITHUB_WORKSPACE}/.tls-test-certs.XXXXXX")"
-          trap 'rm -rf "$cert_dir"' EXIT
-
-          openssl req -x509 -nodes -days 1 -newkey rsa:2048 \
-            -keyout "${cert_dir}/server.key" \
-            -out "${cert_dir}/server.crt" \
-            -subj "/CN=203.0.113.10" \
-            -addext "subjectAltName=IP:203.0.113.10"
-
-          docker run --rm \
-            --add-host frontend:127.0.0.1 \
-            --add-host backend:127.0.0.1 \
-            -v "${GITHUB_WORKSPACE}/nginx/default.conf:/etc/nginx/nginx.conf:ro" \
-            -v "${cert_dir}:/etc/nginx/certs:ro" \
-            nginx:alpine nginx -t
 
   # ============================================================
   # Docker Build + Security Scan
@@ -134,20 +108,17 @@ jobs:
   # Trivy scans these exact images.
   # Then the images are saved as artifacts.
   # ============================================================
-  docker-build-scan:
-    name: Docker Build & Security Scan
+  docker-build:
+    name: Docker Build 
 
     needs:
       - backend-ci
       - frontend-ci
-      - nginx-tls-check
     if: >
       always() &&
       !cancelled() &&
       !failure() &&
       (
-        contains(github.event.head_commit.message, 'scan') ||
-        contains(github.event.head_commit.message, 'SCAN') ||
         contains(github.event.head_commit.message, 'build') ||
         contains(github.event.head_commit.message, 'BUILD')
       )
@@ -184,16 +155,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=itam-backend
 
 
-      - name: Scan Backend Image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'itam-backend:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
-
-
       # ============================================================
       # FRONTEND
       # ============================================================
@@ -210,15 +171,6 @@ jobs:
           cache-from: type=gha,scope=itam-frontend
           cache-to: type=gha,mode=max,scope=itam-frontend
 
-
-      - name: Scan Frontend Image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'itam-frontend:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
 
 
       # ============================================================
@@ -237,15 +189,6 @@ jobs:
           cache-from: type=gha,scope=itam-nginx
           cache-to: type=gha,mode=max,scope=itam-nginx
 
-
-      - name: Scan Nginx Image with Trivy
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'itam-nginx:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
 
 
       # ============================================================
@@ -294,6 +237,50 @@ jobs:
           path: nginx-image.tar
           retention-days: 1
 
+  docker-scan:
+    name: Docker Security Scan
+    needs:
+      - backend-ci
+      - frontend-ci
+
+    if: >
+      always() &&
+      !cancelled() &&
+      !failure() &&
+      (
+        contains(github.event.head_commit.message, 'scan') ||
+        contains(github.event.head_commit.message, 'SCAN')
+      )
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+        - name: Scan Backend Image with Trivy
+          uses: aquasecurity/trivy-action@master
+          with:
+            image-ref: 'itam-backend:${{ github.sha }}'
+            format: 'table'
+            exit-code: '0'
+            ignore-unfixed: true
+            severity: 'CRITICAL,HIGH'
+        - name: Scan Frontend Image with Trivy
+          uses: aquasecurity/trivy-action@master
+          with:
+            image-ref: 'itam-frontend:${{ github.sha }}'
+            format: 'table'
+            exit-code: '0'
+            ignore-unfixed: true
+            severity: 'CRITICAL,HIGH'
+        - name: Scan Nginx Image with Trivy
+          uses: aquasecurity/trivy-action@master
+          with:
+            image-ref: 'itam-nginx:${{ github.sha }}'
+            format: 'table'
+            exit-code: '0'
+            ignore-unfixed: true
+            severity: 'CRITICAL,HIGH'   
+
 
   # ============================================================
   # Docker Push
@@ -308,15 +295,14 @@ jobs:
     name: Push Docker Images
 
     needs:
-      - docker-build-scan
+      - docker-build
+      - docker-scan
 
     if: >
       always() &&
       !cancelled() &&
-      needs.docker-build-scan.result == 'success' &&
+      needs.docker-scan.result == 'success' &&
       (
-        contains(github.event.head_commit.message, 'scan') ||
-        contains(github.event.head_commit.message, 'SCAN') ||
         contains(github.event.head_commit.message, 'build') ||
         contains(github.event.head_commit.message, 'BUILD')
       )

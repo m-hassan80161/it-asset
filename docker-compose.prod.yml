@@ -34,13 +34,14 @@ services:
 
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in the deployment environment}
+      NODE_ENV: production
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://localhost:8443}
 
     depends_on:
       postgres:
         condition: service_healthy
-
-    ports:
-      - "3000:3000"
 
     networks:
       - itam_net
@@ -67,12 +68,14 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+      - "8443:443"
     depends_on:
       - frontend
       - backend
 
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_DIR:-./nginx/certs}:/etc/nginx/certs:ro
     networks:
       - itam_net
 

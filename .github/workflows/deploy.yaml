@@ -13,6 +13,7 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, linux, x64]
+    if: github.event_name != 'pull_request'
 
     steps:
       # ==========================================
@@ -20,6 +21,58 @@ jobs:
       # ==========================================
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ==========================================
+      # Create or validate the production TLS certificate
+      # ==========================================
+      - name: Ensure Production TLS Certificate
+        id: tls
+        env:
+          PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PRODUCTION_IP}" ]]; then
+            echo "::error::Set the PRODUCTION_IP Actions variable to the production server's IPv4 address."
+            exit 1
+          fi
+
+          python3 -c 'import ipaddress, os; ipaddress.IPv4Address(os.environ["PRODUCTION_IP"])'
+          TLS_CERT_DIR="${HOME}/.local/share/itam/certs"
+          install -d -m 700 "${TLS_CERT_DIR}"
+          chmod 700 "${TLS_CERT_DIR}"
+          echo "certificate-path=${TLS_CERT_DIR}/server.crt" >> "${GITHUB_OUTPUT}"
+
+          if [[ -f "${TLS_CERT_DIR}/server.crt" && -f "${TLS_CERT_DIR}/server.key" ]] \
+            && openssl verify -CAfile "${TLS_CERT_DIR}/server.crt" \
+              -verify_ip "${PRODUCTION_IP}" "${TLS_CERT_DIR}/server.crt" \
+            && openssl x509 -in "${TLS_CERT_DIR}/server.crt" -noout -checkend 86400 \
+            && cmp -s \
+              <(openssl x509 -in "${TLS_CERT_DIR}/server.crt" -pubkey -noout) \
+              <(openssl pkey -in "${TLS_CERT_DIR}/server.key" -pubout); then
+            echo "Existing TLS certificate is valid for the production IP."
+          else
+            cert_dir="$(mktemp -d)"
+            trap 'rm -rf "$cert_dir"' EXIT
+
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout "${cert_dir}/server.key" \
+              -out "${cert_dir}/server.crt" \
+              -subj "/CN=${PRODUCTION_IP}" \
+              -addext "subjectAltName=IP:${PRODUCTION_IP}"
+
+            install -m 600 "${cert_dir}/server.key" "${TLS_CERT_DIR}/server.key"
+            install -m 644 "${cert_dir}/server.crt" "${TLS_CERT_DIR}/server.crt"
+            echo "Generated a self-signed TLS certificate for the production IP."
+          fi
+          chmod 600 "${TLS_CERT_DIR}/server.key"
+
+      - name: Publish Public TLS Certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: itam-production-server-certificate
+          path: ${{ steps.tls.outputs.certificate-path }}
+          if-no-files-found: error
+          retention-days: 30
 
       # ==========================================
       # Create Production Environment
@@ -30,6 +83,9 @@ jobs:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
           IMAGE_TAG: ${{ github.sha }}
@@ -39,6 +95,10 @@ jobs:
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
+          ADMIN_USERNAME=${ADMIN_USERNAME}
+          ADMIN_PASSWORD=${ADMIN_PASSWORD}
+          FRONTEND_ORIGIN=https://${PRODUCTION_IP}:8443
+          TLS_CERT_DIR=${HOME}/.local/share/itam/certs
           PGADMIN_EMAIL=${PGADMIN_EMAIL}
           PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
           IMAGE_TAG=latest
@@ -160,6 +220,10 @@ jobs:
           docker compose \
             -f docker-compose.prod.yml \
             up -d
+
+          docker compose \
+            -f docker-compose.prod.yml \
+            up -d --force-recreate nginx
           
           echo "✅ All services started"
 
@@ -209,5 +273,4 @@ jobs:
         if: success()
         run: |
           echo "✅ Deployment completed successfully!"
-          echo "Backend: http://localhost:3000"
-          echo "Frontend: http://localhost"
+          echo "Frontend: https://${{ vars.PRODUCTION_IP }}:8443"

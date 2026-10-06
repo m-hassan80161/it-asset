@@ -34,8 +34,32 @@ model Device {
   disks         DiskDrive[]
   software      InstalledSoftware[]
   gitConfig     GitConfig?
+  complianceAlerts ComplianceAlert[]
+  components    DeviceComponent[]
+  componentHistory DeviceComponentHistory[]
 
   @@index([computerName])
+}
+
+model AdminAccount {
+  id           String         @id
+  username     String         @unique
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  sessions     AdminSession[]
+}
+
+model AdminSession {
+  id        String       @id @default(uuid())
+  tokenHash String       @unique
+  adminId   String
+  admin     AdminAccount @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+
+  @@index([adminId])
+  @@index([expiresAt])
 }
 
 model CpuInfo {
@@ -56,6 +80,46 @@ model MotherboardInfo {
   manufacturer String
   model        String
   serialNumber String
+}
+
+model DeviceComponent {
+  id           String                     @id @default(uuid())
+  deviceId     String
+  device       Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  category     String
+  name         String
+  manufacturer String?
+  model        String?
+  sizeInches   Float?
+  details      String?
+  specifications Json                     @default("{}")
+  createdAt    DateTime                   @default(now())
+  updatedAt    DateTime                   @updatedAt
+  history      DeviceComponentHistory[]
+
+  @@index([deviceId])
+}
+
+enum DeviceComponentAction {
+  ADDED
+  UPDATED
+  REMOVED
+}
+
+model DeviceComponentHistory {
+  id             String                 @id @default(uuid())
+  deviceId       String
+  device         Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  componentId    String?
+  component      DeviceComponent?       @relation(fields: [componentId], references: [id], onDelete: SetNull)
+  componentName  String
+  action         DeviceComponentAction
+  previousValue  Json?
+  newValue       Json?
+  changedAt      DateTime               @default(now())
+
+  @@index([deviceId, changedAt])
+  @@index([componentId])
 }
 
 model RamModule {
@@ -89,19 +153,60 @@ model DiskDrive {
   @@index([deviceId])
 }
 
+enum ComplianceStatus {
+  UP_TO_DATE
+  OUTDATED
+  MISSING
+  NOT_TRACKED
+}
+
 model InstalledSoftware {
-  id          String   @id @default(uuid())
-  deviceId    String
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  name        String
-  version     String
-  publisher   String?
-  installDate DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String            @id @default(uuid())
+  deviceId         String
+  device           Device            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  name             String
+  version          String
+  publisher        String?
+  installDate      DateTime?
+  masterSoftwareId String?
+  masterSoftware   MasterSoftware?   @relation(fields: [masterSoftwareId], references: [id])
+  complianceStatus ComplianceStatus  @default(NOT_TRACKED)
+  lastCheckedAt    DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@index([deviceId])
   @@index([name])
+  @@index([masterSoftwareId])
+}
+
+model MasterSoftware {
+  id                 String            @id @default(uuid())
+  name               String            @unique
+  minRequiredVersion String
+  isMandatory        Boolean           @default(false)
+  description        String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  installedSoftware  InstalledSoftware[]
+
+  @@index([name])
+}
+
+model ComplianceAlert {
+  id            String   @id @default(uuid())
+  deviceId      String
+  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  softwareName  String
+  newVersion    String
+  currentVersion String?
+  laggingCount  Int      @default(0)
+  message       String
+  resolved      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@index([deviceId])
+  @@index([resolved])
 }
 
 model GitConfig {

@@ -25,6 +25,7 @@ A **production-ready, containerized full-stack application** for enterprises to:
 ### 1. **Inventory Management**
 - Automated data collection via PowerShell GPO script
 - Hardware snapshot: CPU, RAM, motherboard, disks, git config
+- Per-device component tracking with category-specific monitor, mouse, and keyboard specifications, customizable fields, and a change history
 - Software inventory with version tracking
 - Real-time compliance status display
 
@@ -118,7 +119,7 @@ docker-compose up -d
 ```
 
 ### 3. Access the Platform
-- **Frontend:** http://localhost:5173
+- **Frontend:** https://YOUR_SERVER_IP:8443
 - **API Docs:** http://localhost:3000/api/docs
 - **Swagger UI:** http://localhost:3000/api
 
@@ -181,12 +182,14 @@ curl -X POST http://localhost:3000/api/v1/onboarding \
 
 ### Key Tables
 - **Device** — Hardware snapshots + metadata
+- **DeviceComponent / DeviceComponentHistory** — Manually managed peripherals and their add, update, and removal history
 - **InstalledSoftware** — Software inventory per device
 - **MasterSoftware** — Admin-defined compliance baseline
 - **ComplianceAlert** — Delta-update notifications
 - **AdUser, AdGroup, AdOrganizationalUnit** — AD sync cache
 - **DepartmentFolder** — File server folder mappings
 - **OnboardingRequest** — Employee provisioning workflow records
+- **AdminAccount / AdminSession** — Administrator login and persistent sessions
 
 See `backend/prisma/schema.prisma` for full schema.
 
@@ -203,11 +206,15 @@ See `backend/prisma/schema.prisma` for full schema.
 - Service accounts stored in `.env` (use `.env.local` + .gitignore)
 - Consider secrets manager (HashiCorp Vault, AWS Secrets Manager) for production
 - Rotate service account passwords regularly
+- Set `ADMIN_PASSWORD` to a unique value of at least 12 characters before the first backend startup. `ADMIN_USERNAME` defaults to `admin`.
+- The initial admin credentials are seeded once; changing these environment values later does not overwrite the account stored in PostgreSQL.
+- Admin passwords are stored as scrypt hashes. Browser sessions use HttpOnly, SameSite=Strict cookies and expire after 24 hours. Changing credentials revokes all active sessions.
 
 ### Network
 - Firewall allow only backend → AD / File Server
 - Frontend behind reverse proxy/WAF
-- API endpoints should require authentication (add JWT middleware)
+- Run the production frontend and API behind HTTPS so the Secure session cookie is protected in transit.
+- Application APIs require an admin session. The PowerShell inventory ingestion endpoint remains unauthenticated for device agents.
 
 ---
 
@@ -284,7 +291,7 @@ Full troubleshooting guide in [SETUP.md](./docs/SETUP.md).
 - [ ] WinRM certificate valid (not self-signed)
 - [ ] Firewall rules allow connectivity
 - [ ] Backup strategy defined for PostgreSQL
-- [ ] API authentication enabled (add JWT middleware)
+- [ ] API authentication enabled via secure admin session cookies
 - [ ] Rate limiting configured
 
 ---
@@ -309,6 +316,31 @@ MIT
 ## Support
 
 See [SETUP.md](./docs/SETUP.md) for complete setup instructions, troubleshooting, and production deployment guidance.
+
+---
+
 ## Device Management
 
-Device management allows administrators to add, edit and manage company devices.
+Device management allows administrators to monitor and maintain the full IT estate from a single interface.
+
+### What administrators can do
+- View all managed workstations with up-to-date inventory snapshots
+- Filter devices by operating system, software, or recent activity
+- Inspect detailed hardware, RAM, disk, motherboard, and application data
+- Review compliance status for installed software against approved baselines
+- Identify stale or missing inventory records and investigate drift quickly
+
+### Inventory lifecycle
+1. Client machines report in through the PowerShell collector script
+2. Backend stores or updates the device record in PostgreSQL
+3. Frontend dashboards show the latest status and version details
+4. Admins can drill into a specific device to review installed software and configuration history
+
+### Operational value
+This gives IT teams a single operational view of device health, version compliance, and onboarding readiness without manually reconciling spreadsheets or direct AD exports.
+
+---
+
+## Platform Summary
+
+The platform combines inventory collection, directory synchronization, compliance enforcement, and onboarding automation into a single enterprise-ready workflow. It is designed for IT operations teams that need a repeatable way to keep device records current, ensure software standards, and provision employees with minimal manual effort.

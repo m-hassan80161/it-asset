@@ -13,7 +13,7 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, linux, x64]
-   
+    
 
     steps:
       # ==========================================
@@ -101,7 +101,7 @@ jobs:
           TLS_CERT_DIR=${HOME}/.local/share/itam/certs
           PGADMIN_EMAIL=${PGADMIN_EMAIL}
           PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
-          IMAGE_TAG=latest
+          IMAGE_TAG=${IMAGE_TAG}
           EOF
 
           chmod 600 .env
@@ -114,6 +114,38 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ==========================================
+      # Build and publish images from this exact commit
+      # ==========================================
+      - name: Build and Publish Production Images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          docker build --pull \
+            -f backend/Dockerfile.prod \
+            -t "${DOCKERHUB_USERNAME}/itam-backend:${IMAGE_TAG}" \
+            -t "${DOCKERHUB_USERNAME}/itam-backend:latest" \
+            backend
+
+          docker build --pull \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            -t "${DOCKERHUB_USERNAME}/itam-frontend:${IMAGE_TAG}" \
+            -t "${DOCKERHUB_USERNAME}/itam-frontend:latest" \
+            frontend
+
+          docker build --pull \
+            -t "${DOCKERHUB_USERNAME}/itam-nginx:${IMAGE_TAG}" \
+            -t "${DOCKERHUB_USERNAME}/itam-nginx:latest" \
+            nginx
+
+          for image in itam-backend itam-frontend itam-nginx; do
+            docker push "${DOCKERHUB_USERNAME}/${image}:${IMAGE_TAG}"
+            docker push "${DOCKERHUB_USERNAME}/${image}:latest"
+          done
 
       # ==========================================
       # Pull Images
@@ -155,40 +187,6 @@ jobs:
           
           echo "❌ PostgreSQL failed health check"
           docker logs itam_postgres
-          exit 1
-
-      # ==========================================
-      # Start Backend
-      # ==========================================
-      - name: Start Backend Service
-        run: |
-          docker compose \
-            -f docker-compose.prod.yml \
-            up -d backend
-
-      # ==========================================
-      # Wait for Backend to be ready
-      # ==========================================
-      - name: Wait for Backend Container
-        run: |
-          echo "Waiting for backend container to be ready..."
-          
-          for i in {1..20}; do
-            if docker inspect \
-              --format='{{.State.Running}}' \
-              itam_backend 2>/dev/null | grep -q true
-            then
-              echo "✅ Backend container is running"
-              sleep 2
-              exit 0
-            fi
-            
-            echo "Attempt $i/20... waiting..."
-            sleep 1
-          done
-          
-          echo "❌ Backend container failed to start"
-          docker logs itam_backend
           exit 1
 
       # ==========================================
@@ -242,7 +240,7 @@ jobs:
             echo "Marking the interrupted admin-auth migration rolled back so its idempotent SQL can safely reconcile existing tables."
             docker compose \
               -f docker-compose.prod.yml \
-              exec -T backend \
+              run --rm --no-deps -T backend \
               npx prisma migrate resolve --rolled-back 20261005120000_add_admin_auth
           else
             echo "No failed admin-auth migration to recover."
@@ -258,9 +256,43 @@ jobs:
           
           docker compose \
             -f docker-compose.prod.yml \
-            exec -T backend \
+            run --rm --no-deps -T backend \
             npx prisma migrate deploy
           echo "✅ Migrations completed successfully"
+
+      # ==========================================
+      # Start Backend after migrations are applied
+      # ==========================================
+      - name: Start Backend Service
+        run: |
+          docker compose \
+            -f docker-compose.prod.yml \
+            up -d backend
+
+      # ==========================================
+      # Wait for Backend to be ready
+      # ==========================================
+      - name: Wait for Backend Container
+        run: |
+          echo "Waiting for backend container to be ready..."
+
+          for i in {1..20}; do
+            if docker inspect \
+              --format='{{.State.Running}}' \
+              itam_backend 2>/dev/null | grep -q true
+            then
+              echo "✅ Backend container is running"
+              sleep 2
+              exit 0
+            fi
+
+            echo "Attempt $i/20... waiting..."
+            sleep 1
+          done
+
+          echo "❌ Backend container failed to start"
+          docker logs itam_backend
+          exit 1
 
       # ==========================================
       # Start All Services

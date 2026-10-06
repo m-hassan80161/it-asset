@@ -1,6 +1,16 @@
-CREATE TYPE "DeviceComponentAction" AS ENUM ('ADDED', 'UPDATED', 'REMOVED');
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_type
+        WHERE typname = 'DeviceComponentAction'
+    ) THEN
+        CREATE TYPE "DeviceComponentAction" AS ENUM ('ADDED', 'UPDATED', 'REMOVED');
+    END IF;
+END
+$$;
 
-CREATE TABLE "DeviceComponent" (
+CREATE TABLE IF NOT EXISTS "DeviceComponent" (
     "id" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
     "category" TEXT NOT NULL,
@@ -14,7 +24,7 @@ CREATE TABLE "DeviceComponent" (
     CONSTRAINT "DeviceComponent_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "DeviceComponentHistory" (
+CREATE TABLE IF NOT EXISTS "DeviceComponentHistory" (
     "id" TEXT NOT NULL,
     "deviceId" TEXT NOT NULL,
     "componentId" TEXT,
@@ -26,21 +36,54 @@ CREATE TABLE "DeviceComponentHistory" (
     CONSTRAINT "DeviceComponentHistory_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "DeviceComponent_deviceId_idx" ON "DeviceComponent"("deviceId");
-CREATE INDEX "DeviceComponentHistory_deviceId_changedAt_idx" ON "DeviceComponentHistory"("deviceId", "changedAt");
-CREATE INDEX "DeviceComponentHistory_componentId_idx" ON "DeviceComponentHistory"("componentId");
+CREATE INDEX IF NOT EXISTS "DeviceComponent_deviceId_idx" ON "DeviceComponent"("deviceId");
+CREATE INDEX IF NOT EXISTS "DeviceComponentHistory_deviceId_changedAt_idx" ON "DeviceComponentHistory"("deviceId", "changedAt");
+CREATE INDEX IF NOT EXISTS "DeviceComponentHistory_componentId_idx" ON "DeviceComponentHistory"("componentId");
 
-ALTER TABLE "DeviceComponent"
-ADD CONSTRAINT "DeviceComponent_deviceId_fkey"
-FOREIGN KEY ("deviceId") REFERENCES "Device"("id")
-ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'DeviceComponent_deviceId_fkey'
+          AND conrelid = '"DeviceComponent"'::regclass
+    ) THEN
+        ALTER TABLE "DeviceComponent"
+        ADD CONSTRAINT "DeviceComponent_deviceId_fkey"
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id")
+        ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END
+$$;
 
-ALTER TABLE "DeviceComponentHistory"
-ADD CONSTRAINT "DeviceComponentHistory_deviceId_fkey"
-FOREIGN KEY ("deviceId") REFERENCES "Device"("id")
-ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'DeviceComponentHistory_deviceId_fkey'
+          AND conrelid = '"DeviceComponentHistory"'::regclass
+    ) THEN
+        ALTER TABLE "DeviceComponentHistory"
+        ADD CONSTRAINT "DeviceComponentHistory_deviceId_fkey"
+        FOREIGN KEY ("deviceId") REFERENCES "Device"("id")
+        ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END
+$$;
 
-ALTER TABLE "DeviceComponentHistory"
-ADD CONSTRAINT "DeviceComponentHistory_componentId_fkey"
-FOREIGN KEY ("componentId") REFERENCES "DeviceComponent"("id")
-ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'DeviceComponentHistory_componentId_fkey'
+          AND conrelid = '"DeviceComponentHistory"'::regclass
+    ) THEN
+        ALTER TABLE "DeviceComponentHistory"
+        ADD CONSTRAINT "DeviceComponentHistory_componentId_fkey"
+        FOREIGN KEY ("componentId") REFERENCES "DeviceComponent"("id")
+        ON DELETE SET NULL ON UPDATE CASCADE;
+    END IF;
+END
+$$;

@@ -1,2 +1,2 @@
 ALTER TABLE "DeviceComponent"
-ADD COLUMN "specifications" JSONB NOT NULL DEFAULT '{}';
+ADD COLUMN IF NOT EXISTS "specifications" JSONB NOT NULL DEFAULT '{}';

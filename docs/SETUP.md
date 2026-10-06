@@ -153,6 +153,11 @@ backend image starts the compiled NestJS app and never runs `prisma db push` at
 startup. Development Compose continues using the development Dockerfile and
 its development startup behavior.
 
+On pushes to the `devolp` branch, the CI workflow checks the commit message:
+include `build` to build and publish Docker Hub images, `scan` to build and scan
+images without publishing them, or both words to do both. If neither word is
+present, Docker image build, scan, and publish jobs are skipped.
+
 Containers will start in order: `postgres` → `backend` → `frontend`
 
 ### 4. Verify

@@ -129,10 +129,8 @@ jobs:
   # ============================================================
   # Docker Build + Security Scan
   #
-  # IMPORTANT:
-  # Images are BUILT ONLY ONCE here.
-  # Trivy scans these exact images.
-  # Then the images are saved as artifacts.
+  # Images are built for scanning and/or publishing according to
+  # the commit message. Only build requests save and publish them.
   # ============================================================
   docker-build-scan:
     name: Docker Build & Security Scan
@@ -147,9 +145,7 @@ jobs:
       !failure() &&
       (
         contains(github.event.head_commit.message, 'scan') ||
-        contains(github.event.head_commit.message, 'SCAN') ||
-        contains(github.event.head_commit.message, 'build') ||
-        contains(github.event.head_commit.message, 'BUILD')
+        contains(github.event.head_commit.message, 'build')
       )
 
     runs-on: ubuntu-latest
@@ -186,6 +182,7 @@ jobs:
 
 
       - name: Scan Backend Image with Trivy
+        if: contains(github.event.head_commit.message, 'scan')
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'itam-backend:${{ github.sha }}'
@@ -213,6 +210,7 @@ jobs:
 
 
       - name: Scan Frontend Image with Trivy
+        if: contains(github.event.head_commit.message, 'scan')
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'itam-frontend:${{ github.sha }}'
@@ -240,6 +238,7 @@ jobs:
 
 
       - name: Scan Nginx Image with Trivy
+        if: contains(github.event.head_commit.message, 'scan')
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'itam-nginx:${{ github.sha }}'
@@ -256,6 +255,7 @@ jobs:
       # ============================================================
 
       - name: Save Docker Images
+        if: contains(github.event.head_commit.message, 'build')
         run: |
           docker save \
             itam-backend:${{ github.sha }} \
@@ -275,6 +275,7 @@ jobs:
       # ============================================================
 
       - name: Upload Backend Image
+        if: contains(github.event.head_commit.message, 'build')
         uses: actions/upload-artifact@v4
         with:
           name: itam-backend-image
@@ -282,6 +283,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Frontend Image
+        if: contains(github.event.head_commit.message, 'build')
         uses: actions/upload-artifact@v4
         with:
           name: itam-frontend-image
@@ -289,6 +291,7 @@ jobs:
           retention-days: 1
 
       - name: Upload Nginx Image
+        if: contains(github.event.head_commit.message, 'build')
         uses: actions/upload-artifact@v4
         with:
           name: itam-nginx-image
@@ -302,8 +305,7 @@ jobs:
   # IMPORTANT:
   # NO DOCKER BUILD HERE.
   #
-  # We download the exact images that were already built
-  # and scanned in the previous job.
+  # We download the exact images built in the previous job.
   # ============================================================
   docker-push:
     name: Push Docker Images
@@ -315,12 +317,7 @@ jobs:
       always() &&
       !cancelled() &&
       needs.docker-build-scan.result == 'success' &&
-      (
-        contains(github.event.head_commit.message, 'scan') ||
-        contains(github.event.head_commit.message, 'SCAN') ||
-        contains(github.event.head_commit.message, 'build') ||
-        contains(github.event.head_commit.message, 'BUILD')
-      )
+      contains(github.event.head_commit.message, 'build')
 
     runs-on: ubuntu-latest
 

@@ -88,7 +88,7 @@ jobs:
           PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: latest
         run: |
           cat > .env <<EOF
           DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
@@ -116,42 +116,11 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ==========================================
-      # Build and publish images from this exact commit
-      # ==========================================
-      - name: Build and Publish Production Images
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          docker build --pull \
-            -f backend/Dockerfile.prod \
-            -t "${DOCKERHUB_USERNAME}/itam-backend:${IMAGE_TAG}" \
-            -t "${DOCKERHUB_USERNAME}/itam-backend:latest" \
-            backend
-
-          docker build --pull \
-            --build-arg VITE_API_BASE_URL=/api/v1 \
-            -t "${DOCKERHUB_USERNAME}/itam-frontend:${IMAGE_TAG}" \
-            -t "${DOCKERHUB_USERNAME}/itam-frontend:latest" \
-            frontend
-
-          docker build --pull \
-            -t "${DOCKERHUB_USERNAME}/itam-nginx:${IMAGE_TAG}" \
-            -t "${DOCKERHUB_USERNAME}/itam-nginx:latest" \
-            nginx
-
-          for image in itam-backend itam-frontend itam-nginx; do
-            docker push "${DOCKERHUB_USERNAME}/${image}:${IMAGE_TAG}"
-            docker push "${DOCKERHUB_USERNAME}/${image}:latest"
-          done
-
-      # ==========================================
-      # Pull Images
+      # Pull prebuilt production images from Docker Hub
       # ==========================================
       - name: Pull Production Images
         run: |
+          set -euo pipefail
           docker compose \
             -f docker-compose.prod.yml \
             pull

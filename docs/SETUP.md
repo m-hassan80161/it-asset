@@ -147,10 +147,11 @@ the deploy workflow saves a compressed backup outside the repository under
 when its tables or indexes already exist. The workflow only marks that specific
 migration rolled back when Prisma recorded it as failed, then reapplies it;
 other migration failures stop deployment for investigation.
-Production images are built from the checked-out commit and deployed using that
-commit's SHA tag. The production backend image starts the compiled NestJS app;
-it never runs `prisma db push` at startup. Development Compose continues using
-the development Dockerfile and its development startup behavior.
+Production deployment pulls the prebuilt `latest` images from Docker Hub; the
+deploy workflow does not build or push application images. The production
+backend image starts the compiled NestJS app and never runs `prisma db push` at
+startup. Development Compose continues using the development Dockerfile and
+its development startup behavior.
 
 Containers will start in order: `postgres` → `backend` → `frontend`
 

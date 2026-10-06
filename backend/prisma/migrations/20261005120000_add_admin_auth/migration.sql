@@ -1,4 +1,4 @@
-CREATE TABLE "AdminAccount" (
+CREATE TABLE IF NOT EXISTS "AdminAccount" (
     "id" TEXT NOT NULL,
     "username" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
@@ -7,7 +7,7 @@ CREATE TABLE "AdminAccount" (
     CONSTRAINT "AdminAccount_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "AdminSession" (
+CREATE TABLE IF NOT EXISTS "AdminSession" (
     "id" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "adminId" TEXT NOT NULL,
@@ -16,12 +16,23 @@ CREATE TABLE "AdminSession" (
     CONSTRAINT "AdminSession_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "AdminAccount_username_key" ON "AdminAccount"("username");
-CREATE UNIQUE INDEX "AdminSession_tokenHash_key" ON "AdminSession"("tokenHash");
-CREATE INDEX "AdminSession_adminId_idx" ON "AdminSession"("adminId");
-CREATE INDEX "AdminSession_expiresAt_idx" ON "AdminSession"("expiresAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "AdminAccount_username_key" ON "AdminAccount"("username");
+CREATE UNIQUE INDEX IF NOT EXISTS "AdminSession_tokenHash_key" ON "AdminSession"("tokenHash");
+CREATE INDEX IF NOT EXISTS "AdminSession_adminId_idx" ON "AdminSession"("adminId");
+CREATE INDEX IF NOT EXISTS "AdminSession_expiresAt_idx" ON "AdminSession"("expiresAt");
 
-ALTER TABLE "AdminSession"
-ADD CONSTRAINT "AdminSession_adminId_fkey"
-FOREIGN KEY ("adminId") REFERENCES "AdminAccount"("id")
-ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'AdminSession_adminId_fkey'
+          AND conrelid = '"AdminSession"'::regclass
+    ) THEN
+        ALTER TABLE "AdminSession"
+        ADD CONSTRAINT "AdminSession_adminId_fkey"
+        FOREIGN KEY ("adminId") REFERENCES "AdminAccount"("id")
+        ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END
+$$;

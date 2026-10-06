@@ -140,6 +140,14 @@ The workflow publishes only `server.crt` as the
 `itam-production-server-certificate` Actions artifact so it can be downloaded
 and trusted on client machines. Never upload or distribute `server.key`.
 
+Production PostgreSQL data stays in its persistent Docker volume; deployments
+apply Prisma migrations rather than replacing the database. Before migrations,
+the deploy workflow saves a compressed backup outside the repository under
+`$HOME/.local/share/itam/backups`. The admin-auth migration is safe to retry
+when its tables or indexes already exist. The workflow only marks that specific
+migration rolled back when Prisma recorded it as failed, then reapplies it;
+other migration failures stop deployment for investigation.
+
 Containers will start in order: `postgres` → `backend` → `frontend`
 
 ### 4. Verify

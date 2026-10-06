@@ -13,6 +13,7 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, linux, x64]
+    
 
     steps:
       # ==========================================
@@ -20,6 +21,58 @@ jobs:
       # ==========================================
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ==========================================
+      # Create or validate the production TLS certificate
+      # ==========================================
+      - name: Ensure Production TLS Certificate
+        id: tls
+        env:
+          PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PRODUCTION_IP}" ]]; then
+            echo "::error::Set the PRODUCTION_IP Actions variable to the production server's IPv4 address."
+            exit 1
+          fi
+
+          python3 -c 'import ipaddress, os; ipaddress.IPv4Address(os.environ["PRODUCTION_IP"])'
+          TLS_CERT_DIR="${HOME}/.local/share/itam/certs"
+          install -d -m 700 "${TLS_CERT_DIR}"
+          chmod 700 "${TLS_CERT_DIR}"
+          echo "certificate-path=${TLS_CERT_DIR}/server.crt" >> "${GITHUB_OUTPUT}"
+
+          if [[ -f "${TLS_CERT_DIR}/server.crt" && -f "${TLS_CERT_DIR}/server.key" ]] \
+            && openssl verify -CAfile "${TLS_CERT_DIR}/server.crt" \
+              -verify_ip "${PRODUCTION_IP}" "${TLS_CERT_DIR}/server.crt" \
+            && openssl x509 -in "${TLS_CERT_DIR}/server.crt" -noout -checkend 86400 \
+            && cmp -s \
+              <(openssl x509 -in "${TLS_CERT_DIR}/server.crt" -pubkey -noout) \
+              <(openssl pkey -in "${TLS_CERT_DIR}/server.key" -pubout); then
+            echo "Existing TLS certificate is valid for the production IP."
+          else
+            cert_dir="$(mktemp -d)"
+            trap 'rm -rf "$cert_dir"' EXIT
+
+            openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+              -keyout "${cert_dir}/server.key" \
+              -out "${cert_dir}/server.crt" \
+              -subj "/CN=${PRODUCTION_IP}" \
+              -addext "subjectAltName=IP:${PRODUCTION_IP}"
+
+            install -m 600 "${cert_dir}/server.key" "${TLS_CERT_DIR}/server.key"
+            install -m 644 "${cert_dir}/server.crt" "${TLS_CERT_DIR}/server.crt"
+            echo "Generated a self-signed TLS certificate for the production IP."
+          fi
+          chmod 600 "${TLS_CERT_DIR}/server.key"
+
+      - name: Publish Public TLS Certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: itam-production-server-certificate
+          path: ${{ steps.tls.outputs.certificate-path }}
+          if-no-files-found: error
+          retention-days: 30
 
       # ==========================================
       # Create Production Environment
@@ -30,18 +83,25 @@ jobs:
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: latest
         run: |
           cat > .env <<EOF
           DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
           POSTGRES_USER=${POSTGRES_USER}
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           POSTGRES_DB=${POSTGRES_DB}
+          ADMIN_USERNAME=${ADMIN_USERNAME}
+          ADMIN_PASSWORD=${ADMIN_PASSWORD}
+          FRONTEND_ORIGIN=https://${PRODUCTION_IP}:8443
+          TLS_CERT_DIR=${HOME}/.local/share/itam/certs
           PGADMIN_EMAIL=${PGADMIN_EMAIL}
           PGADMIN_PASSWORD=${PGADMIN_PASSWORD}
-          IMAGE_TAG=latest
+          IMAGE_TAG=${IMAGE_TAG}
           EOF
 
           chmod 600 .env
@@ -56,10 +116,11 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ==========================================
-      # Pull Images
+      # Pull prebuilt production images from Docker Hub
       # ==========================================
       - name: Pull Production Images
         run: |
+          set -euo pipefail
           docker compose \
             -f docker-compose.prod.yml \
             pull
@@ -98,7 +159,78 @@ jobs:
           exit 1
 
       # ==========================================
-      # Start Backend
+      # Back up production data before changing the schema
+      # ==========================================
+      - name: Back Up Production Database
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          backup_dir="${HOME}/.local/share/itam/backups"
+          install -d -m 700 "${backup_dir}"
+          backup_file="${backup_dir}/pre-migration-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sql.gz"
+
+          docker compose \
+            -f docker-compose.prod.yml \
+            exec -T postgres \
+            sh -c 'pg_dump --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+            | gzip -c > "${backup_file}"
+
+          gzip -t "${backup_file}"
+          chmod 600 "${backup_file}"
+          echo "Created production database backup: ${backup_file}"
+
+      # ==========================================
+      # Recover only the known interrupted admin-auth migration
+      # ==========================================
+      - name: Recover Interrupted Admin Auth Migration
+        run: |
+          set -euo pipefail
+          migration_table_exists="$(
+            docker compose \
+              -f docker-compose.prod.yml \
+              exec -T postgres \
+              sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq -c "SELECT to_regclass('\''public._prisma_migrations'\'') IS NOT NULL"'
+          )"
+
+          if [[ "${migration_table_exists}" == "t" ]]; then
+            failed_migration="$(
+              docker compose \
+                -f docker-compose.prod.yml \
+                exec -T postgres \
+                sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq -c "SELECT 1 FROM \"_prisma_migrations\" WHERE migration_name = '\''20261005120000_add_admin_auth'\'' AND finished_at IS NULL AND rolled_back_at IS NULL LIMIT 1"'
+            )"
+          else
+            failed_migration=""
+          fi
+
+          if [[ "${failed_migration}" == "1" ]]; then
+            echo "Marking the interrupted admin-auth migration rolled back so its idempotent SQL can safely reconcile existing tables."
+            docker compose \
+              -f docker-compose.prod.yml \
+              run --rm --no-deps -T backend \
+              npx prisma migrate resolve --rolled-back 20261005120000_add_admin_auth
+          else
+            echo "No failed admin-auth migration to recover."
+          fi
+
+      # ==========================================
+      # Run Prisma Migrations (للـ schema updates)
+      # ==========================================
+      - name: Run Prisma Migrations
+        run: |
+          set -euo pipefail
+          echo "Running Prisma migrations..."
+          
+          docker compose \
+            -f docker-compose.prod.yml \
+            run --rm --no-deps -T backend \
+            npx prisma migrate deploy
+          echo "✅ Migrations completed successfully"
+
+      # ==========================================
+      # Start Backend after migrations are applied
       # ==========================================
       - name: Start Backend Service
         run: |
@@ -112,7 +244,7 @@ jobs:
       - name: Wait for Backend Container
         run: |
           echo "Waiting for backend container to be ready..."
-          
+
           for i in {1..20}; do
             if docker inspect \
               --format='{{.State.Running}}' \
@@ -122,33 +254,14 @@ jobs:
               sleep 2
               exit 0
             fi
-            
+
             echo "Attempt $i/20... waiting..."
             sleep 1
           done
-          
+
           echo "❌ Backend container failed to start"
           docker logs itam_backend
           exit 1
-
-      # ==========================================
-      # Run Prisma Migrations (للـ schema updates)
-      # ==========================================
-      - name: Run Prisma Migrations
-        run: |
-          echo "Running Prisma migrations..."
-          
-          docker compose \
-            -f docker-compose.prod.yml \
-            exec -T backend \
-            npx prisma migrate deploy
-          
-          if [ $? -eq 0 ]; then
-            echo "✅ Migrations completed successfully"
-          else
-            echo "❌ Migrations failed"
-            exit 1
-          fi
 
       # ==========================================
       # Start All Services
@@ -160,6 +273,10 @@ jobs:
           docker compose \
             -f docker-compose.prod.yml \
             up -d
+
+          docker compose \
+            -f docker-compose.prod.yml \
+            up -d --force-recreate nginx
           
           echo "✅ All services started"
 
@@ -209,5 +326,4 @@ jobs:
         if: success()
         run: |
           echo "✅ Deployment completed successfully!"
-          echo "Backend: http://localhost:3000"
-          echo "Frontend: http://localhost"
+          echo "Frontend: https://${{ vars.PRODUCTION_IP }}:8443"

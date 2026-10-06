@@ -5,11 +5,14 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { InventoryService } from "./inventory.service";
+import { DeviceComponentDto } from "./dto/device-component.dto";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
+import { Public } from "../auth/public.decorator";
 
 @ApiTags("inventory")
 @Controller("inventory")
@@ -17,6 +20,7 @@ export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   // Called by the PowerShell GPO collector script (Invoke-RestMethod)
+  @Public()
   @Post()
   ingest(@Body() payload: InventoryPayloadDto) {
     return this.inventoryService.ingest(payload);
@@ -43,5 +47,30 @@ export class InventoryController {
   @Get(":id")
   detail(@Param("id") id: string) {
     return this.inventoryService.getDeviceDetail(id);
+  }
+
+  @Post(":id/components")
+  addComponent(
+    @Param("id") id: string,
+    @Body() dto: DeviceComponentDto,
+  ) {
+    return this.inventoryService.addDeviceComponent(id, dto);
+  }
+
+  @Put(":id/components/:componentId")
+  updateComponent(
+    @Param("id") id: string,
+    @Param("componentId") componentId: string,
+    @Body() dto: DeviceComponentDto,
+  ) {
+    return this.inventoryService.updateDeviceComponent(id, componentId, dto);
+  }
+
+  @Delete(":id/components/:componentId")
+  removeComponent(
+    @Param("id") id: string,
+    @Param("componentId") componentId: string,
+  ) {
+    return this.inventoryService.removeDeviceComponent(id, componentId);
   }
 }

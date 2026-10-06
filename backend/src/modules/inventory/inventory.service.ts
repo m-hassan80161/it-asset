@@ -4,8 +4,12 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/prisma/prisma.service";
+import { DeviceComponentDto } from "./dto/device-component.dto";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
+
+type ComponentSnapshot = Prisma.InputJsonObject;
 
 @Injectable()
 export class InventoryService {
@@ -167,6 +171,166 @@ export class InventoryService {
     return { id, status: "deleted" };
   }
 
+  async addDeviceComponent(deviceId: string, dto: DeviceComponentDto) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureDeviceExists(tx, deviceId);
+      const data = this.normalizeComponent(dto);
+      const component = await tx.deviceComponent.create({
+        data: { deviceId, ...data },
+      });
+
+      await tx.deviceComponentHistory.create({
+        data: {
+          deviceId,
+          componentId: component.id,
+          componentName: this.componentName(data),
+          action: "ADDED",
+          newValue: this.componentSnapshot(data),
+        },
+      });
+
+      return component;
+    });
+  }
+
+  async updateDeviceComponent(
+    deviceId: string,
+    componentId: string,
+    dto: DeviceComponentDto,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.deviceComponent.findFirst({
+        where: { id: componentId, deviceId },
+      });
+      if (!current) {
+        throw new NotFoundException(`Component ${componentId} was not found`);
+      }
+
+      const data = this.normalizeComponent(dto);
+      const previousValue = this.componentSnapshot(current);
+      const newValue = this.componentSnapshot(data);
+      if (JSON.stringify(previousValue) === JSON.stringify(newValue)) {
+        return current;
+      }
+
+      const component = await tx.deviceComponent.update({
+        where: { id: componentId },
+        data,
+      });
+      await tx.deviceComponentHistory.create({
+        data: {
+          deviceId,
+          componentId,
+          componentName: this.componentName(data),
+          action: "UPDATED",
+          previousValue,
+          newValue,
+        },
+      });
+
+      return component;
+    });
+  }
+
+  async removeDeviceComponent(deviceId: string, componentId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const component = await tx.deviceComponent.findFirst({
+        where: { id: componentId, deviceId },
+      });
+      if (!component) {
+        throw new NotFoundException(`Component ${componentId} was not found`);
+      }
+
+      const previousValue = this.componentSnapshot(component);
+      await tx.deviceComponentHistory.create({
+        data: {
+          deviceId,
+          componentId,
+          componentName: this.componentName(component),
+          action: "REMOVED",
+          previousValue,
+        },
+      });
+      await tx.deviceComponent.delete({ where: { id: componentId } });
+
+      return { id: componentId, status: "deleted" };
+    });
+  }
+
+  private async ensureDeviceExists(
+    tx: Prisma.TransactionClient,
+    deviceId: string,
+  ) {
+    const device = await tx.device.findUnique({
+      where: { id: deviceId },
+      select: { id: true },
+    });
+    if (!device) {
+      throw new NotFoundException(`Device ${deviceId} was not found`);
+    }
+  }
+
+  private normalizeComponent(dto: DeviceComponentDto) {
+    const category = dto.category.trim();
+    const name = dto.name.trim();
+    if (!category || !name) {
+      throw new BadRequestException("Component category and name are required");
+    }
+
+    const specifications: Record<string, string> = {};
+    const entries = Object.entries(dto.specifications ?? {});
+    if (entries.length > 30) {
+      throw new BadRequestException("A component can have at most 30 specifications");
+    }
+    for (const [rawKey, rawValue] of entries) {
+      if (typeof rawKey !== "string" || typeof rawValue !== "string") {
+        throw new BadRequestException("Component specifications must be text values");
+      }
+      const key = rawKey.trim();
+      const value = rawValue.trim();
+      if (!key || key.length > 80 || value.length > 500) {
+        throw new BadRequestException("Component specification names or values are invalid");
+      }
+      if (value) specifications[key] = value;
+    }
+
+    return {
+      category,
+      name,
+      manufacturer: dto.manufacturer?.trim() || null,
+      model: dto.model?.trim() || null,
+      sizeInches: dto.sizeInches != null && dto.sizeInches > 0
+        ? dto.sizeInches
+        : null,
+      details: dto.details?.trim() || null,
+      specifications,
+    };
+  }
+
+  private componentSnapshot(value: {
+    category: string;
+    name: string;
+    manufacturer?: string | null;
+    model?: string | null;
+    sizeInches?: number | null;
+    details?: string | null;
+    specifications?: Prisma.JsonValue;
+  }): ComponentSnapshot {
+    return {
+      category: value.category,
+      name: value.name,
+      manufacturer: value.manufacturer ?? null,
+      model: value.model ?? null,
+      sizeInches: value.sizeInches ?? null,
+      details: value.details ?? null,
+      specifications: value.specifications ?? {},
+    };
+  }
+
+  private componentName(value: { category: string; name: string }) {
+    return `${value.category} / ${value.name}`;
+  }
+
   async getDeviceDetail(id: string) {
     return this.prisma.device.findUnique({
       where: { id },
@@ -177,6 +341,8 @@ export class InventoryService {
         disks: true,
         software: true,
         gitConfig: true,
+        components: { orderBy: [{ category: "asc" }, { name: "asc" }] },
+        componentHistory: { orderBy: { changedAt: "desc" } },
       },
     });
   }

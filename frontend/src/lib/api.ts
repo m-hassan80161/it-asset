@@ -1,11 +1,30 @@
 import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+const configuredApiBase = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = configuredApiBase
+  ? /^https?:\/\//i.test(configuredApiBase)
+    ? configuredApiBase
+    : `/${configuredApiBase.replace(/^\/+/, "")}`
+  : "/api/v1";
 
 const api = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
+  withCredentials: true,
 });
+
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post("/auth/login", { username, password }),
+  me: () => api.get("/auth/me"),
+  logout: () => api.post("/auth/logout"),
+  settings: () => api.get("/auth/settings"),
+  updateSettings: (settings: {
+    currentPassword: string;
+    username: string;
+    newPassword?: string;
+  }) => api.put("/auth/settings", settings),
+};
 
 export const inventoryApi = {
   list: (skip = 0, take = 50, softwareName = "") =>
@@ -14,8 +33,27 @@ export const inventoryApi = {
     }),
   detail: (id: string) => api.get(`/inventory/${id}`),
   remove: (id: string) => api.delete(`/inventory/${id}`),
+  addComponent: (deviceId: string, component: DeviceComponentInput) =>
+    api.post(`/inventory/${deviceId}/components`, component),
+  updateComponent: (
+    deviceId: string,
+    componentId: string,
+    component: DeviceComponentInput,
+  ) => api.put(`/inventory/${deviceId}/components/${componentId}`, component),
+  removeComponent: (deviceId: string, componentId: string) =>
+    api.delete(`/inventory/${deviceId}/components/${componentId}`),
   ingest: (payload: any) => api.post("/inventory", payload),
 };
+
+export interface DeviceComponentInput {
+  category: string;
+  name: string;
+  manufacturer?: string | null;
+  model?: string | null;
+  sizeInches?: number | null;
+  details?: string | null;
+  specifications?: Record<string, string>;
+}
 
 export const adApi = {
   sync: () => api.post("/active-directory/sync"),

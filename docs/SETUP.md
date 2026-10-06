@@ -109,21 +109,61 @@ JWT_SECRET=$(openssl rand -base64 32)
 NODE_ENV=production
 
 # Frontend
-VITE_API_BASE_URL=http://localhost:3000/api/v1
+VITE_API_BASE_URL=/api/v1
 ```
 
 ### 3. Build & Start
 
 ```bash
+# For manual/local setup, create a self-signed certificate for the IP used to open the site.
+mkdir -p nginx/certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout nginx/certs/server.key \
+  -out nginx/certs/server.crt \
+  -subj "/CN=YOUR_SERVER_IP" \
+  -addext "subjectAltName=IP:YOUR_SERVER_IP,IP:127.0.0.1,DNS:localhost"
+
 docker-compose up -d
 ```
+
+Trust `nginx/certs/server.crt` on client machines before using the site; replace
+`YOUR_SERVER_IP` with the server's IP address. The certificate and private key
+are ignored by Git. Open the platform at `https://YOUR_SERVER_IP:8443`;
+HTTP on port 8080 redirects to HTTPS.
+
+For GitHub Actions production deployment, set the repository Actions variable
+`PRODUCTION_IP` to the server's IPv4 address and add `ADMIN_PASSWORD` as a
+repository secret. The deploy workflow creates or renews the self-signed
+certificate on the self-hosted runner in `$HOME/.local/share/itam/certs`, outside
+the checked-out repository, and reuses it while it remains valid for that IP.
+The workflow publishes only `server.crt` as the
+`itam-production-server-certificate` Actions artifact so it can be downloaded
+and trusted on client machines. Never upload or distribute `server.key`.
+
+Production PostgreSQL data stays in its persistent Docker volume; deployments
+apply Prisma migrations rather than replacing the database. Before migrations,
+the deploy workflow saves a compressed backup outside the repository under
+`$HOME/.local/share/itam/backups`. The admin-auth migration is safe to retry
+when its tables or indexes already exist. The workflow only marks that specific
+migration rolled back when Prisma recorded it as failed, then reapplies it;
+other migration failures stop deployment for investigation.
+Production deployment pulls the prebuilt `latest` images from Docker Hub; the
+deploy workflow does not build or push application images. The production
+backend image starts the compiled NestJS app and never runs `prisma db push` at
+startup. Development Compose continues using the development Dockerfile and
+its development startup behavior.
+
+On pushes to the `devolp` branch, the CI workflow checks the commit message:
+include `build` to build and publish Docker Hub images, `scan` to build and scan
+images without publishing them, or both words to do both. If neither word is
+present, Docker image build, scan, and publish jobs are skipped.
 
 Containers will start in order: `postgres` → `backend` → `frontend`
 
 ### 4. Verify
 
 - **Backend API:** http://localhost:3000/api/docs
-- **Frontend UI:** http://localhost:5173
+- **Frontend UI:** https://YOUR_SERVER_IP:8443
 - **pgAdmin (optional):** http://localhost:5050  
   ```bash
   docker-compose --profile tools up -d pgadmin
@@ -465,3 +505,4 @@ docker exec -it itam_backend npx prisma migrate deploy
 This platform is provided as-is for IT asset and HR automation. Customize and deploy within your organization's governance policies.
 
 For questions or issues, refer to the codebase comments and inline documentation.
+##dfs

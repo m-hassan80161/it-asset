@@ -1,5 +1,5 @@
 param(
-    [string]$ApiEndpoint = "http://10.22.28.12:3000/api/v1/inventory",
+    [string]$ApiEndpoint = "http://10.22.26.145:3000/api/v1/inventory",
     [bool]$SkipCertValidation = $false
 )
 
@@ -757,7 +757,193 @@ catch {
 }
 
 # ============================================================
-# 8. BUILD PAYLOAD
+# 8. CONNECTED DISPLAYS AND PERIPHERALS
+# ============================================================
+
+Write-Log ""
+Write-Log "Collecting connected displays and peripherals..."
+
+$deviceComponents = @()
+$monitorIds = @{}
+$componentScanSucceeded = $false
+
+try {
+
+    $monitors = Get-CimInstance `
+        -Namespace "root\wmi" `
+        -ClassName WmiMonitorID `
+        -ErrorAction Stop
+
+    foreach ($monitor in $monitors) {
+
+        if (-not $monitor.Active) {
+            continue
+        }
+
+        $manufacturer = -join @(
+            $monitor.ManufacturerName |
+                Where-Object { $_ -ne 0 } |
+                ForEach-Object { [char]$_ }
+        )
+        $model = -join @(
+            $monitor.ProductCodeID |
+                Where-Object { $_ -ne 0 } |
+                ForEach-Object { [char]$_ }
+        )
+        $serialNumber = -join @(
+            $monitor.SerialNumberID |
+                Where-Object { $_ -ne 0 } |
+                ForEach-Object { [char]$_ }
+        )
+        $friendlyName = -join @(
+            $monitor.UserFriendlyName |
+                Where-Object { $_ -ne 0 } |
+                ForEach-Object { [char]$_ }
+        )
+
+        $monitorName = if ($friendlyName.Trim()) {
+            $friendlyName.Trim()
+        }
+        elseif ($manufacturer.Trim() -or $model.Trim()) {
+            "$($manufacturer.Trim()) $($model.Trim())".Trim()
+        }
+        else {
+            "Connected monitor"
+        }
+
+        $deviceInstanceId = Get-SafeProperty `
+            $monitor `
+            "InstanceName" `
+            $null
+
+        if ($deviceInstanceId) {
+            $normalizedMonitorId = (
+                $deviceInstanceId.ToLowerInvariant() -replace "_\d+$", ""
+            ).TrimEnd("\")
+            $monitorIds[$normalizedMonitorId] = $true
+        }
+
+        $specifications = @{}
+        if ($serialNumber.Trim()) {
+            $specifications.serialNumber = $serialNumber.Trim()
+        }
+        if ($deviceInstanceId) {
+            $specifications.deviceInstanceId = $deviceInstanceId
+        }
+
+        $deviceComponents += @{
+            category = "Screen"
+            name = $monitorName
+            manufacturer = if ($manufacturer.Trim()) {
+                $manufacturer.Trim()
+            }
+            else {
+                $null
+            }
+            model = if ($model.Trim()) { $model.Trim() } else { $null }
+            specifications = $specifications
+        }
+    }
+}
+catch {
+
+    Write-Log `
+        "Monitor identification via WMI failed: $($_.Exception.Message)" `
+        "WARN"
+}
+
+try {
+
+    $presentDevices = Get-PnpDevice `
+        -PresentOnly `
+        -ErrorAction Stop
+
+    $componentScanSucceeded = $true
+
+    $peripheralClasses = @(
+        "Mouse",
+        "Keyboard",
+        "HIDClass",
+        "USB",
+        "Bluetooth",
+        "AudioEndpoint",
+        "Monitor"
+    )
+
+    $seenDeviceIds = @{}
+
+    foreach ($device in $presentDevices) {
+
+        $deviceClass = Get-SafeProperty $device "Class" ""
+        $deviceName = Get-SafeProperty $device "FriendlyName" $null
+        $deviceInstanceId = Get-SafeProperty $device "InstanceId" $null
+
+        if ($deviceClass -notin $peripheralClasses -or -not $deviceName) {
+            continue
+        }
+
+        if ($deviceClass -eq "USB" -and
+            $deviceName -match "(?i)root hub|generic usb hub|usb hub|host controller") {
+            continue
+        }
+
+        if ($deviceInstanceId) {
+            $normalizedId = $deviceInstanceId.ToLowerInvariant()
+            if ($seenDeviceIds.ContainsKey($normalizedId)) {
+                continue
+            }
+            $seenDeviceIds[$normalizedId] = $true
+        }
+
+        if ($deviceClass -eq "Monitor" -and $deviceInstanceId) {
+            $normalizedId = (
+                $deviceInstanceId.ToLowerInvariant() -replace "_\d+$", ""
+            ).TrimEnd("\")
+            if ($monitorIds.ContainsKey($normalizedId)) {
+                continue
+            }
+        }
+
+        $category = switch ($deviceClass) {
+            "Mouse" { "Mouse" }
+            "Keyboard" { "Keyboard" }
+            "Monitor" { "Screen" }
+            default { "External Device" }
+        }
+
+        $manufacturer = Get-SafeProperty `
+            $device `
+            "Manufacturer" `
+            $null
+
+        $specifications = @{
+            deviceClass = $deviceClass
+        }
+        if ($deviceInstanceId) {
+            $specifications.deviceInstanceId = $deviceInstanceId
+        }
+
+        $deviceComponents += @{
+            category = $category
+            name = $deviceName
+            manufacturer = $manufacturer
+            model = $null
+            specifications = $specifications
+        }
+    }
+}
+catch {
+
+    Write-Log `
+        "Plug-and-Play peripheral collection failed: $($_.Exception.Message)" `
+        "WARN"
+}
+
+Write-Log `
+    "Connected displays and peripherals found: $($deviceComponents.Count)"
+
+# ============================================================
+# 9. BUILD PAYLOAD
 # ============================================================
 
 Write-Log ""
@@ -778,6 +964,15 @@ $payloadObject = @{
     gitConfig    = $gitConfig
 }
 
+if ($componentScanSucceeded) {
+    $payloadObject.components = $deviceComponents
+}
+else {
+    Write-Log `
+        "Peripheral scan was incomplete; keeping previously collected components." `
+        "WARN"
+}
+
 $payloadJson = $payloadObject |
     ConvertTo-Json -Depth 10
 
@@ -785,7 +980,7 @@ Write-Log `
     "Payload size: $($payloadJson.Length) bytes"
 
 # ============================================================
-# 9. TEST API CONNECTION
+# 10. TEST API CONNECTION
 # ============================================================
 
 Write-Log ""
@@ -822,7 +1017,7 @@ catch {
 }
 
 # ============================================================
-# 10. POST INVENTORY
+# 11. POST INVENTORY
 # ============================================================
 
 Write-Log ""

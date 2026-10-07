@@ -25,6 +25,7 @@ A **production-ready, containerized full-stack application** for enterprises to:
 ### 1. **Inventory Management**
 - Automated data collection via PowerShell GPO script
 - Hardware snapshot: CPU, RAM, motherboard, disks, git config
+- Automatically detect connected monitors and Windows Plug-and-Play peripherals, with manual entry for devices or specifications Windows cannot identify
 - Per-device component tracking with category-specific monitor, mouse, and keyboard specifications, customizable fields, and a change history
 - Software inventory with version tracking
 - Real-time compliance status display

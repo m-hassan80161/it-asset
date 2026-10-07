@@ -86,6 +86,7 @@ model DeviceComponent {
   id           String                     @id @default(uuid())
   deviceId     String
   device       Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  source       DeviceComponentSource      @default(MANUAL)
   category     String
   name         String
   manufacturer String?
@@ -98,6 +99,11 @@ model DeviceComponent {
   history      DeviceComponentHistory[]
 
   @@index([deviceId])
+}
+
+enum DeviceComponentSource {
+  INVENTORY
+  MANUAL
 }
 
 enum DeviceComponentAction {

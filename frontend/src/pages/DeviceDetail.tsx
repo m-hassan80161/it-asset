@@ -5,6 +5,7 @@ import { ArrowLeft, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 
 interface DeviceComponent extends DeviceComponentInput {
   id: string;
+  source?: "INVENTORY" | "MANUAL";
 }
 
 interface DeviceComponentHistory {
@@ -61,6 +62,9 @@ const SPECIFICATION_LABELS: Record<string, string> = {
   switchType: "Switch type",
   layout: "Layout / language",
   keyCount: "Number of keys",
+  deviceClass: "Windows device class",
+  deviceInstanceId: "Device instance ID",
+  serialNumber: "Serial number",
 };
 
 const COMPONENT_SPECIFICATION_FIELDS: Record<
@@ -90,6 +94,11 @@ const COMPONENT_SPECIFICATION_FIELDS: Record<
     { key: "switchType", label: "Switch type", placeholder: "Mechanical, membrane..." },
     { key: "layout", label: "Layout / language", placeholder: "English, Arabic..." },
     { key: "keyCount", label: "Number of keys", type: "number" },
+  ],
+  "External Device": [
+    { key: "connection", label: "Connection", placeholder: "USB, Bluetooth..." },
+    { key: "deviceClass", label: "Device class", placeholder: "Printer, audio..." },
+    { key: "serialNumber", label: "Serial number" },
   ],
 };
 
@@ -370,7 +379,7 @@ export function DeviceDetail() {
           <div>
             <h2 className="text-xl font-semibold">Device Components</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Track monitors, peripherals, and any custom hardware assigned to this device.
+              Automatically detected devices appear here. Add components manually when Windows cannot identify them; editing an automatically detected component keeps your changes from being overwritten by the next scan.
             </p>
           </div>
         </div>
@@ -395,6 +404,7 @@ export function DeviceDetail() {
               <option>Screen</option>
               <option>Mouse</option>
               <option>Keyboard</option>
+              <option>External Device</option>
               <option>Custom</option>
             </select>
           </label>
@@ -644,6 +654,11 @@ export function DeviceDetail() {
                   <div>
                     <span className="rounded bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
                       {component.category}
+                    </span>
+                    <span className="ml-2 text-xs text-slate-500">
+                      {component.source === "INVENTORY"
+                        ? "Automatically detected"
+                        : "Manually managed"}
                     </span>
                     <h3 className="mt-2 font-semibold text-slate-900">
                       {component.name}

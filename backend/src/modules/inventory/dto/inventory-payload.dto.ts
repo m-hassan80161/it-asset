@@ -6,6 +6,7 @@ import {
   IsString,
   ValidateNested,
 } from "class-validator";
+import { DeviceComponentDto } from "./device-component.dto";
 
 export class CpuDto {
   @IsString() model: string;
@@ -68,6 +69,12 @@ export class InventoryPayloadDto {
 
   @IsArray() @ValidateNested({ each: true }) @Type(() => InstalledSoftwareDto)
   software: InstalledSoftwareDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DeviceComponentDto)
+  components?: DeviceComponentDto[];
 
   @IsOptional() @ValidateNested() @Type(() => GitConfigDto)
   gitConfig?: GitConfigDto;

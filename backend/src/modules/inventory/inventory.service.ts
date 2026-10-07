@@ -80,6 +80,37 @@ export class InventoryService {
         });
       }
 
+      if (payload.components !== undefined) {
+        const manualComponents = await tx.deviceComponent.findMany({
+          where: { deviceId: dev.id, source: "MANUAL" },
+          select: { category: true, name: true },
+        });
+        const manualComponentKeys = new Set(
+          manualComponents.map(
+            (component) =>
+              `${component.category.toLowerCase()}\u0000${component.name.toLowerCase()}`,
+          ),
+        );
+
+        await tx.deviceComponent.deleteMany({
+          where: { deviceId: dev.id, source: "INVENTORY" },
+        });
+
+        const discoveredComponents = payload.components.filter((component) => {
+          const key = `${component.category.trim().toLowerCase()}\u0000${component.name.trim().toLowerCase()}`;
+          return !manualComponentKeys.has(key);
+        });
+        if (discoveredComponents.length) {
+          await tx.deviceComponent.createMany({
+            data: discoveredComponents.map((component) => ({
+              deviceId: dev.id,
+              ...this.normalizeComponent(component),
+              source: "INVENTORY",
+            })),
+          });
+        }
+      }
+
       await tx.installedSoftware.deleteMany({ where: { deviceId: dev.id } });
       if (payload.software?.length) {
         await tx.installedSoftware.createMany({
@@ -215,7 +246,7 @@ export class InventoryService {
 
       const component = await tx.deviceComponent.update({
         where: { id: componentId },
-        data,
+        data: { ...data, source: "MANUAL" },
       });
       await tx.deviceComponentHistory.create({
         data: {

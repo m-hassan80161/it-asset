@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  Patch,
   Post,
   Put,
   Req,
@@ -15,9 +18,15 @@ import { SESSION_COOKIE, SESSION_DURATION_MS } from "./auth.constants";
 import { Public } from "./public.decorator";
 import { LoginDto } from "./dto/login.dto";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
+import { UpdateAdminBranchDto } from "./dto/update-admin-branch.dto";
+import { CreateLocalUserDto } from "./dto/create-local-user.dto";
+import { AuthenticatedUser } from "./authenticated-user";
+import { UpdateLocalUserDto } from "./dto/update-local-user.dto";
+import { DeleteLocalUserDto } from "./dto/delete-local-user.dto";
 
 interface AuthenticatedRequest extends Request {
   adminSessionId?: string;
+  user?: AuthenticatedUser;
 }
 
 @ApiTags("auth")
@@ -41,15 +50,65 @@ export class AuthController {
 
   @Get("me")
   async me(@Req() request: AuthenticatedRequest) {
-    if (!request.adminSessionId) {
-      throw new UnauthorizedException("Authentication required");
-    }
-    return this.authService.getSettings();
+    if (!request.adminSessionId) throw new UnauthorizedException("Authentication required");
+    return this.authService.getSettings(request.adminSessionId);
   }
 
   @Get("settings")
-  settings() {
-    return this.authService.getSettings();
+  settings(@Req() request: AuthenticatedRequest) {
+    if (!request.adminSessionId) throw new UnauthorizedException("Authentication required");
+    return this.authService.getSettings(request.adminSessionId);
+  }
+
+  @Get("users")
+  listUsers(@Req() request: AuthenticatedRequest) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.listUsers(request.user);
+  }
+
+  @Post("users")
+  createUser(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateLocalUserDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.createUser(request.user, dto);
+  }
+
+  @Patch("users/:id")
+  updateUser(
+    @Req() request: AuthenticatedRequest,
+    @Param("id") id: string,
+    @Body() dto: UpdateLocalUserDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.updateUser(request.user, id, dto);
+  }
+
+  @Delete("users/:id")
+  deleteUser(
+    @Req() request: AuthenticatedRequest,
+    @Param("id") id: string,
+    @Body() dto: DeleteLocalUserDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.deleteUser(request.user, id, dto.permanentlyAfter30Days);
+  }
+
+  @Get("admins")
+  listAdmins(@Req() request: AuthenticatedRequest) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.listAdmins(request.user);
+  }
+
+  @Put("admins/:id/branch")
+  updateAdminBranch(
+    @Req() request: AuthenticatedRequest,
+    @Param("id") id: string,
+    @Body() dto: UpdateAdminBranchDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.authService.updateAdminBranch(request.user, id, dto);
   }
 
   @Put("settings")

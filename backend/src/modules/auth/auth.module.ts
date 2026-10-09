@@ -3,8 +3,10 @@ import { APP_GUARD } from "@nestjs/core";
 import { AuthController } from "./auth.controller";
 import { AuthGuard } from "./auth.guard";
 import { AuthService } from "./auth.service";
+import { LogsModule } from "../logs/logs.module";
 
 @Module({
+  imports: [LogsModule],
   controllers: [AuthController],
   providers: [
     AuthService,

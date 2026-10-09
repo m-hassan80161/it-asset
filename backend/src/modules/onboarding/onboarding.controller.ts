@@ -1,9 +1,14 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { UserRole } from "@prisma/client";
 import { OnboardingService } from "./onboarding.service";
 import { CreateEmployeeOnboardingDto } from "./dto/create-employee-onboarding.dto";
+import { Roles } from "../auth/roles.decorator";
+import { RolesGuard } from "../auth/roles.guard";
 
 @ApiTags("onboarding")
+@UseGuards(RolesGuard)
+@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
 @Controller("onboarding")
 export class OnboardingController {
   constructor(private readonly onboardingService: OnboardingService) {}

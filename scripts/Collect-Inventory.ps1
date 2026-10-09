@@ -1,6 +1,7 @@
 param(
-    [string]$ApiEndpoint = "http://10.22.26.145:3000/api/v1/inventory",
-    [bool]$SkipCertValidation = $false
+    [string]$ApiEndpoint = "http://10.22.28.12:3000/api/v1/inventory",
+    [bool]$SkipCertValidation = $false,
+    [switch]$PauseOnError
 )
 
 Set-StrictMode -Version Latest
@@ -74,6 +75,18 @@ function Get-SafeProperty {
     return $DefaultValue
 }
 
+function Wait-OnError {
+    param(
+        [string]$Message
+    )
+
+    if ($PauseOnError) {
+        Write-Host ""
+        Write-Host $Message -ForegroundColor Yellow
+        Read-Host "Press Enter to close this window" | Out-Null
+    }
+}
+
 # ============================================================
 # START
 # ============================================================
@@ -82,6 +95,9 @@ Write-Log "=============================================="
 Write-Log " IT Asset Inventory Agent"
 Write-Log "=============================================="
 Write-Log "API Endpoint: $ApiEndpoint"
+if ($PauseOnError) {
+    Write-Log "Pause on error: enabled"
+}
 Write-Log ""
 
 # ============================================================
@@ -986,6 +1002,8 @@ Write-Log `
 Write-Log ""
 Write-Log "Testing connection to API..."
 
+$uri = $null
+
 try {
 
     $uri = [System.Uri]$ApiEndpoint
@@ -1000,11 +1018,26 @@ try {
         Write-Log `
             "TCP connection successful: $($uri.Host):$($uri.Port)" `
             "SUCCESS"
+        if ($connectionTest.RemoteAddress) {
+            Write-Log "Remote address: $($connectionTest.RemoteAddress)"
+        }
+        if ($connectionTest.SourceAddress) {
+            Write-Log "Source address: $($connectionTest.SourceAddress)"
+        }
+        if ($connectionTest.InterfaceAlias) {
+            Write-Log "Network interface: $($connectionTest.InterfaceAlias)"
+        }
     }
     else {
 
-        throw `
-            "Cannot connect to $($uri.Host):$($uri.Port)"
+        $remoteAddress = if ($connectionTest.RemoteAddress) {
+            $connectionTest.RemoteAddress
+        }
+        else {
+            "unresolved"
+        }
+
+        throw "TCP connection to $($uri.Host):$($uri.Port) failed (remote address: $remoteAddress). Check DNS, routing, firewall rules, and whether the API is listening on this interface and port."
     }
 }
 catch {
@@ -1013,6 +1046,26 @@ catch {
         "API connectivity test failed: $($_.Exception.Message)" `
         "ERROR"
 
+    if ($uri) {
+        try {
+            $resolvedAddresses = [System.Net.Dns]::GetHostAddresses(
+                $uri.DnsSafeHost
+            ) | ForEach-Object { $_.IPAddressToString }
+
+            if ($resolvedAddresses) {
+                Write-Log "Resolved addresses: $($resolvedAddresses -join ', ')" "ERROR"
+            }
+            else {
+                Write-Log "DNS returned no addresses for $($uri.DnsSafeHost)" "ERROR"
+            }
+        }
+        catch {
+            Write-Log "DNS lookup failed: $($_.Exception.Message)" "ERROR"
+        }
+    }
+
+    Write-Log "Check that this client can reach the target host and TCP port, and that the API/reverse proxy is listening on that address." "ERROR"
+    Wait-OnError "API connectivity test failed. Review the error details above."
     exit 1
 }
 
@@ -1125,6 +1178,7 @@ try {
             "Server returned HTTP $statusCode" `
             "ERROR"
 
+        Wait-OnError "Inventory upload failed. Review the error details above."
         exit 1
     }
 }
@@ -1136,6 +1190,11 @@ catch {
     Write-Log `
         "Error: $($_.Exception.Message)" `
         "ERROR"
+    Write-Log "Exception type: $($_.Exception.GetType().FullName)" "ERROR"
+
+    if ($_.Exception.InnerException) {
+        Write-Log "Inner error: $($_.Exception.InnerException.Message)" "ERROR"
+    }
 
     # ========================================================
     # READ HTTP ERROR RESPONSE
@@ -1187,6 +1246,7 @@ catch {
         }
     }
 
+    Wait-OnError "Inventory upload failed. Review the error details above."
     exit 1
 }
 

@@ -4,10 +4,11 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { BranchPatternSource, Prisma, UserRole } from "@prisma/client";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { DeviceComponentDto } from "./dto/device-component.dto";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
+import { BranchPatternDto } from "./dto/branch-pattern.dto";
 
 type ComponentSnapshot = Prisma.InputJsonObject;
 
@@ -170,10 +171,20 @@ export class InventoryService {
   }
 
   async listDevices(
-    params: { skip?: number; take?: number; softwareName?: string } = {},
+    params: {
+      skip?: number;
+      take?: number;
+      softwareName?: string;
+      branch?: string;
+      role?: UserRole;
+      actorBranch?: string | null;
+    } = {},
   ) {
     const softwareName = params.softwareName?.trim();
-    return this.prisma.device.findMany({
+    const rules = await this.prisma.branchPattern.findMany({
+      orderBy: [{ pattern: "desc" }],
+    });
+    const devices = await this.prisma.device.findMany({
       skip: params.skip ?? 0,
       take: params.take ?? 50,
       orderBy: { lastSeenAt: "desc" },
@@ -192,6 +203,82 @@ export class InventoryService {
         software: true,
       },
     });
+    return devices.map((device) => ({
+      ...device,
+      branch: this.resolveBranch(device, rules),
+    }));
+  }
+
+  async exportDevices(branch: string | undefined, role: UserRole, actorBranch: string | null) {
+    if (role === UserRole.ADMIN) {
+      if (!actorBranch) throw new BadRequestException("Admin account has no assigned branch");
+      if (branch && branch !== actorBranch) {
+        throw new BadRequestException("Admins can only export devices from their assigned branch");
+      }
+      branch = actorBranch;
+    }
+    const rules = await this.prisma.branchPattern.findMany({
+      orderBy: [{ pattern: "desc" }],
+    });
+    const include = {
+      cpu: true,
+      motherboard: true,
+      ramModules: true,
+      disks: true,
+      components: {
+        where: { category: { contains: "monitor", mode: "insensitive" } },
+        orderBy: [{ category: "asc" }, { name: "asc" }],
+      },
+    } satisfies Prisma.DeviceInclude;
+    const devices: Prisma.DeviceGetPayload<{ include: typeof include }>[] = [];
+    const batchSize = 1000;
+    for (let skip = 0; ; skip += batchSize) {
+      const batch = await this.prisma.device.findMany({
+        skip,
+        take: batchSize,
+        orderBy: { computerName: "asc" },
+        include,
+      });
+      devices.push(...batch);
+      if (batch.length < batchSize) break;
+    }
+    return devices
+      .map((device) => ({ ...device, branch: this.resolveBranch(device, rules) }))
+      .filter((device) => !branch || device.branch === branch);
+  }
+
+  async listBranchPatterns() {
+    return this.prisma.branchPattern.findMany({
+      orderBy: [{ branch: "asc" }, { source: "asc" }, { pattern: "asc" }],
+    });
+  }
+
+  async createBranchPattern(actorId: string, dto: BranchPatternDto) {
+    const pattern = dto.pattern.trim();
+    const branch = dto.branch.trim();
+    if (!pattern || !branch) throw new BadRequestException("Pattern and branch are required");
+    return this.prisma.branchPattern.create({
+      data: { source: dto.source, pattern, branch, createdById: actorId },
+    });
+  }
+
+  async deleteBranchPattern(id: string) {
+    const result = await this.prisma.branchPattern.deleteMany({ where: { id } });
+    if (!result.count) throw new NotFoundException("Branch pattern not found");
+    return { id, status: "deleted" };
+  }
+
+  private resolveBranch(
+    device: { domain: string | null; computerName: string },
+    rules: Array<{ id: string; source: BranchPatternSource; pattern: string; branch: string }>,
+  ) {
+    const hasDomain = Boolean(device.domain?.trim());
+    const source = hasDomain ? BranchPatternSource.DOMAIN : BranchPatternSource.COMPUTER_NAME;
+    const value = (hasDomain ? device.domain : device.computerName)?.toLocaleLowerCase() ?? "";
+    const match = rules
+      .filter((rule) => rule.source === source && value.includes(rule.pattern.toLocaleLowerCase()))
+      .sort((a, b) => b.pattern.length - a.pattern.length || a.id.localeCompare(b.id))[0];
+    return match?.branch ?? null;
   }
 
   async deleteDevice(id: string) {

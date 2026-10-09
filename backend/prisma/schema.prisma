@@ -17,37 +17,76 @@ datasource db {
 // ---------------------------------------------------------
 
 model Device {
-  id            String   @id @default(uuid())
-  computerName  String   @unique
-  loggedInUser  String?
-  osName        String?
-  osVersion     String?
-  osBuild       String?
-  domain        String?
-  lastSeenAt    DateTime @default(now())
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  computerName String   @unique
+  loggedInUser String?
+  osName       String?
+  osVersion    String?
+  osBuild      String?
+  domain       String?
+  lastSeenAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  cpu           CpuInfo?
-  motherboard   MotherboardInfo?
-  ramModules    RamModule[]
-  disks         DiskDrive[]
-  software      InstalledSoftware[]
-  gitConfig     GitConfig?
+  cpu              CpuInfo?
+  motherboard      MotherboardInfo?
+  ramModules       RamModule[]
+  disks            DiskDrive[]
+  software         InstalledSoftware[]
+  gitConfig        GitConfig?
   complianceAlerts ComplianceAlert[]
-  components    DeviceComponent[]
+  components       DeviceComponent[]
   componentHistory DeviceComponentHistory[]
 
   @@index([computerName])
 }
 
+enum BranchPatternSource {
+  DOMAIN
+  COMPUTER_NAME
+}
+
+model BranchPattern {
+  id          String              @id @default(uuid())
+  source      BranchPatternSource
+  pattern     String
+  branch      String
+  createdById String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([source, pattern])
+  @@index([branch])
+}
+
 model AdminAccount {
-  id           String         @id
-  username     String         @unique
-  passwordHash String
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  sessions     AdminSession[]
+  id              String          @id
+  username        String          @unique
+  passwordHash    String
+  fullName        String          @default("System Administrator")
+  role            UserRole        @default(SUPER_ADMIN)
+  branch          String?
+  managedBranches String[]        @default([])
+  isActive        Boolean         @default(true)
+  deleteAfter     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  sessions        AdminSession[]
+  ticketsCreated  Ticket[]        @relation("TicketRequester")
+  ticketsAssigned Ticket[]        @relation("TicketAssignedAdmin")
+  ticketsManaged  Ticket[]        @relation("TicketManager")
+  ticketComments  TicketComment[]
+  transferRequestsSent     TicketTransferRequest[] @relation("TicketTransferRequester")
+  transferRequestsReceived TicketTransferRequest[] @relation("TicketTransferRecipient")
+
+  @@index([isActive, deleteAfter])
+}
+
+enum UserRole {
+  EMPLOYEE
+  ADMIN
+  MANAGER
+  SUPER_ADMIN
 }
 
 model AdminSession {
@@ -63,14 +102,14 @@ model AdminSession {
 }
 
 model CpuInfo {
-  id           String  @id @default(uuid())
-  deviceId     String  @unique
-  device       Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  model        String
-  cores        Int
-  threads      Int
+  id            String @id @default(uuid())
+  deviceId      String @unique
+  device        Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  model         String
+  cores         Int
+  threads       Int
   clockSpeedMhz Int
-  architecture String
+  architecture  String
 }
 
 model MotherboardInfo {
@@ -83,20 +122,20 @@ model MotherboardInfo {
 }
 
 model DeviceComponent {
-  id           String                     @id @default(uuid())
-  deviceId     String
-  device       Device                     @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  source       DeviceComponentSource      @default(MANUAL)
-  category     String
-  name         String
-  manufacturer String?
-  model        String?
-  sizeInches   Float?
-  details      String?
+  id             String                   @id @default(uuid())
+  deviceId       String
+  device         Device                   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  source         DeviceComponentSource    @default(MANUAL)
+  category       String
+  name           String
+  manufacturer   String?
+  model          String?
+  sizeInches     Float?
+  details        String?
   specifications Json                     @default("{}")
-  createdAt    DateTime                   @default(now())
-  updatedAt    DateTime                   @updatedAt
-  history      DeviceComponentHistory[]
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  history        DeviceComponentHistory[]
 
   @@index([deviceId])
 }
@@ -113,25 +152,25 @@ enum DeviceComponentAction {
 }
 
 model DeviceComponentHistory {
-  id             String                 @id @default(uuid())
-  deviceId       String
-  device         Device                 @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  componentId    String?
-  component      DeviceComponent?       @relation(fields: [componentId], references: [id], onDelete: SetNull)
-  componentName  String
-  action         DeviceComponentAction
-  previousValue  Json?
-  newValue       Json?
-  changedAt      DateTime               @default(now())
+  id            String                @id @default(uuid())
+  deviceId      String
+  device        Device                @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  componentId   String?
+  component     DeviceComponent?      @relation(fields: [componentId], references: [id], onDelete: SetNull)
+  componentName String
+  action        DeviceComponentAction
+  previousValue Json?
+  newValue      Json?
+  changedAt     DateTime              @default(now())
 
   @@index([deviceId, changedAt])
   @@index([componentId])
 }
 
 model RamModule {
-  id           String @id @default(uuid())
+  id           String  @id @default(uuid())
   deviceId     String
-  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  device       Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   capacityGb   Float
   speedMhz     Int
   serialNumber String?
@@ -167,19 +206,19 @@ enum ComplianceStatus {
 }
 
 model InstalledSoftware {
-  id               String            @id @default(uuid())
+  id               String           @id @default(uuid())
   deviceId         String
-  device           Device            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  device           Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   name             String
   version          String
   publisher        String?
   installDate      DateTime?
   masterSoftwareId String?
-  masterSoftware   MasterSoftware?   @relation(fields: [masterSoftwareId], references: [id])
-  complianceStatus ComplianceStatus  @default(NOT_TRACKED)
+  masterSoftware   MasterSoftware?  @relation(fields: [masterSoftwareId], references: [id])
+  complianceStatus ComplianceStatus @default(NOT_TRACKED)
   lastCheckedAt    DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([deviceId])
   @@index([name])
@@ -187,29 +226,29 @@ model InstalledSoftware {
 }
 
 model MasterSoftware {
-  id                 String            @id @default(uuid())
-  name               String            @unique
+  id                 String              @id @default(uuid())
+  name               String              @unique
   minRequiredVersion String
-  isMandatory        Boolean           @default(false)
+  isMandatory        Boolean             @default(false)
   description        String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   installedSoftware  InstalledSoftware[]
 
   @@index([name])
 }
 
 model ComplianceAlert {
-  id            String   @id @default(uuid())
-  deviceId      String
-  device        Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  softwareName  String
-  newVersion    String
+  id             String   @id @default(uuid())
+  deviceId       String
+  device         Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  softwareName   String
+  newVersion     String
   currentVersion String?
-  laggingCount  Int      @default(0)
-  message       String
-  resolved      Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  laggingCount   Int      @default(0)
+  message        String
+  resolved       Boolean  @default(false)
+  createdAt      DateTime @default(now())
 
   @@index([deviceId])
   @@index([resolved])
@@ -230,53 +269,202 @@ model GitConfig {
 // ---------------------------------------------------------
 
 model AdOrganizationalUnit {
-  id           String   @id @default(uuid())
-  distinguishedName String @unique
-  name         String
-  parentDn     String?
-  excluded     Boolean  @default(false)
-  lastSyncedAt DateTime @default(now())
+  id                String   @id @default(uuid())
+  distinguishedName String   @unique
+  name              String
+  parentDn          String?
+  excluded          Boolean  @default(false)
+  lastSyncedAt      DateTime @default(now())
 
-  users        AdUser[]
+  users AdUser[]
 }
 
 model AdGroup {
-  id                String    @id @default(uuid())
-  distinguishedName String    @unique
+  id                String   @id @default(uuid())
+  distinguishedName String   @unique
   name              String
   description       String?
-  excluded          Boolean   @default(false)
-  lastSyncedAt      DateTime  @default(now())
+  excluded          Boolean  @default(false)
+  lastSyncedAt      DateTime @default(now())
 
-  members           AdUserGroup[]
+  members AdUserGroup[]
 }
 
 model AdUser {
-  id                String    @id @default(uuid())
-  distinguishedName String    @unique
-  sAMAccountName    String    @unique
+  id                String                @id @default(uuid())
+  distinguishedName String                @unique
+  sAMAccountName    String                @unique
   firstName         String?
   lastName          String?
   email             String?
   managerDn         String?
-  manager           AdUser?   @relation("ManagerToReports", fields: [managerDn], references: [distinguishedName])
-  directReports     AdUser[]  @relation("ManagerToReports")
+  manager           AdUser?               @relation("ManagerToReports", fields: [managerDn], references: [distinguishedName])
+  directReports     AdUser[]              @relation("ManagerToReports")
   ouId              String?
   ou                AdOrganizationalUnit? @relation(fields: [ouId], references: [id])
-  isServiceAccount  Boolean   @default(false)
-  excluded          Boolean   @default(false)
-  lastSyncedAt      DateTime  @default(now())
+  isServiceAccount  Boolean               @default(false)
+  excluded          Boolean               @default(false)
+  lastSyncedAt      DateTime              @default(now())
 
-  groups            AdUserGroup[]
+  groups             AdUserGroup[]
   onboardingRequests OnboardingRequest[]
 }
 
+enum TicketCategory {
+  HARDWARE
+  SOFTWARE
+  NETWORK
+  PRINTER
+  OTHER
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Ticket {
+  id              String             @id @default(uuid())
+  title           String
+  description     String
+  category        TicketCategory
+  priority        TicketPriority     @default(MEDIUM)
+  status          TicketStatus       @default(OPEN)
+  requesterId     String?
+  requester       AdminAccount?      @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  requesterUsername String              @default("unknown")
+  requesterName     String              @default("Unknown user")
+  branch          String
+  departmentId    String?
+  remoteSupportType RemoteSupportType?
+  remoteSupportId   String?
+  assignedAdminId String?
+  assignedAdmin   AdminAccount?      @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAdminName String?
+  assignedAdminUsername String?
+  managerId       String?
+  manager          AdminAccount?      @relation("TicketManager", fields: [managerId], references: [id], onDelete: SetNull)
+  attachments     TicketAttachment[]
+  comments        TicketComment[]
+  transferRequests TicketTransferRequest[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  resolvedAt      DateTime?
+
+  @@index([requesterId])
+  @@index([assignedAdminId])
+  @@index([managerId])
+  @@index([status])
+  @@index([branch])
+}
+
+enum TicketTransferRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model TicketTransferRequest {
+  id                   String                       @id @default(uuid())
+  ticketId             String
+  ticket               Ticket                       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  requestedByAdminId   String?
+  requestedByAdmin     AdminAccount?                @relation("TicketTransferRequester", fields: [requestedByAdminId], references: [id], onDelete: SetNull)
+  requesterName        String
+  requesterUsername    String
+  targetAdminId        String?
+  targetAdmin          AdminAccount?                @relation("TicketTransferRecipient", fields: [targetAdminId], references: [id], onDelete: SetNull)
+  targetName           String
+  targetUsername       String
+  status               TicketTransferRequestStatus @default(PENDING)
+  message              String?
+  createdAt            DateTime                     @default(now())
+  respondedAt          DateTime?
+
+  @@index([ticketId, status])
+  @@index([targetAdminId, status])
+}
+
+enum RemoteSupportType {
+  VNC
+  ANYDESK
+}
+
+model TicketAttachment {
+  id        String   @id @default(uuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  createdAt DateTime @default(now())
+}
+
+model TicketComment {
+  id        String       @id @default(uuid())
+  ticketId  String
+  ticket    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId       String?
+  author         AdminAccount? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorUsername String        @default("unknown")
+  authorName     String        @default("Unknown user")
+  content        String
+  createdAt      DateTime      @default(now())
+
+  @@index([ticketId])
+  @@index([authorId])
+}
+
+enum LogLevel {
+  INFO
+  WARNING
+  ERROR
+  DEBUG
+}
+
+enum LogSource {
+  FRONTEND
+  BACKEND
+  DATABASE
+  API
+}
+
+model ApplicationLog {
+  id           String    @id @default(uuid())
+  userId       String?
+  level        LogLevel
+  source       LogSource
+  message      String
+  details      Json?
+  stackTrace   String?
+  duration     Int?
+  timestamp    DateTime  @default(now())
+  responseTime Int?
+  endpoint     String?
+  statusCode   Int?
+
+  @@index([level])
+  @@index([source])
+  @@index([timestamp])
+  @@index([userId])
+}
+
 model AdUserGroup {
-  id       String  @id @default(uuid())
-  userId   String
-  user     AdUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  groupId  String
-  group    AdGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  id      String  @id @default(uuid())
+  userId  String
+  user    AdUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupId String
+  group   AdGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([userId, groupId])
 }
@@ -284,8 +472,8 @@ model AdUserGroup {
 // Config for excluding service accounts / admin OUs from sync views
 model AdSyncExclusionRule {
   id        String   @id @default(uuid())
-  pattern   String   // e.g. "OU=ServiceAccounts,*" or "Admin_*"
-  type      String   // "OU" | "GROUP" | "USER"
+  pattern   String // e.g. "OU=ServiceAccounts,*" or "Admin_*"
+  type      String // "OU" | "GROUP" | "USER"
   createdAt DateTime @default(now())
 }
 
@@ -294,9 +482,9 @@ model AdSyncExclusionRule {
 // ---------------------------------------------------------
 
 model DepartmentFolder {
-  id           String   @id @default(uuid())
-  name         String   @unique
-  uncPath      String   @unique // e.g. \\fileserver\CompanyData\Finance
+  id            String   @id @default(uuid())
+  name          String   @unique
+  uncPath       String   @unique // e.g. \\fileserver\CompanyData\Finance
   lastScannedAt DateTime @default(now())
 
   onboardingRequests OnboardingRequest[]
@@ -317,24 +505,24 @@ enum OnboardingStep {
 }
 
 model OnboardingRequest {
-  id                String          @id @default(uuid())
-  firstName         String
-  lastName          String
-  username          String          @unique
-  email             String
-  targetOuDn        String
-  managerDn         String?
+  id                 String            @id @default(uuid())
+  firstName          String
+  lastName           String
+  username           String            @unique
+  email              String
+  targetOuDn         String
+  managerDn          String?
   departmentFolderId String?
-  departmentFolder  DepartmentFolder? @relation(fields: [departmentFolderId], references: [id])
-  requestedGroups   String[]        // group DNs
-  status            OnboardingStep  @default(PENDING)
-  errorMessage      String?
-  createdAdUserId   String?
-  createdAdUser     AdUser?         @relation(fields: [createdAdUserId], references: [id])
-  createdFolderPath String?
-  logs              OnboardingLog[]
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  departmentFolder   DepartmentFolder? @relation(fields: [departmentFolderId], references: [id])
+  requestedGroups    String[] // group DNs
+  status             OnboardingStep    @default(PENDING)
+  errorMessage       String?
+  createdAdUserId    String?
+  createdAdUser      AdUser?           @relation(fields: [createdAdUserId], references: [id])
+  createdFolderPath  String?
+  logs               OnboardingLog[]
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
 }
 
 model OnboardingLog {

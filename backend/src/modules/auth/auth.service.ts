@@ -20,14 +20,15 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 import { promisify } from "node:util";
-import { SESSION_DURATION_MS } from "./auth.constants";
+import { REMEMBERED_SESSION_DURATION_MS, SESSION_DURATION_MS } from "./auth.constants";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
 import { CreateLocalUserDto } from "./dto/create-local-user.dto";
-import { UserRole } from "@prisma/client";
+import { AuthProvider, CpanelAccountStatus, UserRole } from "@prisma/client";
 import { AuthenticatedUser } from "./authenticated-user";
 import { UpdateAdminBranchDto } from "./dto/update-admin-branch.dto";
 import { LogsService } from "../logs/logs.service";
 import { UpdateLocalUserDto } from "./dto/update-local-user.dto";
+import { CpanelService } from "./cpanel.service";
 
 const scrypt = promisify(scryptCallback);
 const ACCOUNT_ID = "admin";
@@ -43,6 +44,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly logsService: LogsService,
+    private readonly cpanelService: CpanelService,
   ) {}
 
   async onModuleInit() {
@@ -86,20 +88,39 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     if (this.purgeInterval) clearInterval(this.purgeInterval);
   }
 
-  async login(username: string, password: string) {
+  async login(username: string, password: string, rememberMe = false) {
+    const normalizedUsername = username.trim().includes("@")
+      ? username.trim().toLowerCase()
+      : username.trim();
     const account = await this.prisma.adminAccount.findUnique({
-      where: { username },
+      where: { username: normalizedUsername },
     });
-    if (
-      !account ||
-      !account.isActive ||
+    if (!account || !account.isActive) {
+      throw new UnauthorizedException("Invalid username or password");
+    }
+    if (account.authProvider === AuthProvider.CPANEL) {
+      const cpanelAccount = await this.prisma.cpanelAccount.findUnique({
+        where: { username: account.username },
+        select: { status: true, itamAccountId: true },
+      });
+      if (
+        !cpanelAccount ||
+        cpanelAccount.status !== CpanelAccountStatus.ACTIVE ||
+        cpanelAccount.itamAccountId !== account.id ||
+        !(await this.cpanelService.verifyMailboxPassword(normalizedUsername, password))
+      ) {
+        throw new UnauthorizedException("Invalid username or password");
+      }
+    } else if (
+      account.role === UserRole.EMPLOYEE ||
       !(await this.verifyPassword(password, account.passwordHash))
     ) {
       throw new UnauthorizedException("Invalid username or password");
     }
 
     const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+    const expiresAt = new Date(Date.now() +
+      (rememberMe ? REMEMBERED_SESSION_DURATION_MS : SESSION_DURATION_MS));
     await this.prisma.adminSession.create({
       data: {
         adminId: account.id,
@@ -123,6 +144,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         username: true,
         fullName: true,
         role: true,
+        authProvider: true,
         branch: true,
         managedBranches: true,
       },
@@ -146,6 +168,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         username: true,
         fullName: true,
         role: true,
+        authProvider: true,
         branch: true,
         managedBranches: true,
         isActive: true,
@@ -159,6 +182,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async createUser(actor: AuthenticatedUser, dto: CreateLocalUserDto) {
     this.requireSuperAdmin(actor.role);
     this.validateRoleAssignments(dto.role, dto.branch, dto.managedBranches);
+    await this.validateConfiguredBranches(dto.role, dto.branch, dto.managedBranches);
     if (await this.prisma.adminAccount.findUnique({ where: { username: dto.username } })) {
       throw new ConflictException("Username is already in use");
     }
@@ -196,6 +220,13 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
   async updateUser(actor: AuthenticatedUser, targetId: string, dto: UpdateLocalUserDto) {
     const target = await this.prisma.adminAccount.findUnique({ where: { id: targetId } });
     if (!target) throw new NotFoundException("Account not found");
+    if (
+      target.authProvider === AuthProvider.CPANEL &&
+      ((dto.username !== undefined && dto.username.trim() !== target.username) ||
+        dto.password !== undefined)
+    ) {
+      throw new ForbiddenException("cPanel-linked usernames and passwords must be changed in cPanel");
+    }
 
     if (actor.role === UserRole.EMPLOYEE) {
       if (actor.id !== target.id) {
@@ -227,6 +258,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
       (dto.role !== undefined && dto.role !== target.role ? [] : target.managedBranches);
     if (actor.role === UserRole.SUPER_ADMIN) {
       this.validateRoleAssignments(newRole, newBranch ?? undefined, newManagedBranches);
+      await this.validateConfiguredBranches(newRole, newBranch ?? undefined, newManagedBranches);
       const losingLastSuperAdmin =
         target.role === UserRole.SUPER_ADMIN &&
         target.isActive &&
@@ -271,6 +303,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         },
       });
       if (passwordHash || username) {
+        await transaction.adminSession.deleteMany({ where: { adminId: target.id } });
+      }
+      if (dto.isActive === false) {
         await transaction.adminSession.deleteMany({ where: { adminId: target.id } });
       }
       await transaction.applicationLog.create({
@@ -416,6 +451,9 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     const account = await this.prisma.adminAccount.findUniqueOrThrow({
       where: { id: session.adminId },
     });
+    if (account.authProvider === AuthProvider.CPANEL) {
+      throw new ForbiddenException("cPanel-linked credentials must be managed in cPanel");
+    }
     if (!(await this.verifyPassword(settings.currentPassword, account.passwordHash))) {
       throw new UnauthorizedException("Current password is incorrect");
     }
@@ -498,11 +536,32 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     if ((role === UserRole.EMPLOYEE || role === UserRole.ADMIN) && !branch?.trim()) {
       throw new BadRequestException("A branch is required for employees and admins");
     }
+
     if (role === UserRole.MANAGER && !branches.length) {
       throw new BadRequestException("At least one managed branch is required for managers");
     }
     if (branches.some((managedBranch) => !managedBranch) || new Set(branches).size !== branches.length) {
       throw new BadRequestException("Managed branches must be non-empty and unique");
+    }
+  }
+
+  private async validateConfiguredBranches(
+    role: UserRole,
+    branch?: string,
+    managedBranches?: string[],
+  ) {
+    const assignedBranches = role === UserRole.MANAGER
+      ? (managedBranches ?? []).map((value) => value.trim())
+      : role === UserRole.EMPLOYEE || role === UserRole.ADMIN
+        ? [branch?.trim() ?? ""]
+        : [];
+    if (!assignedBranches.length) return;
+    const configured = await this.prisma.branch.findMany({
+      where: { name: { in: assignedBranches } },
+      select: { name: true },
+    });
+    if (configured.length !== new Set(assignedBranches).size) {
+      throw new BadRequestException("Assigned branches must be selected from the configured branch list");
     }
   }
 
@@ -516,7 +575,8 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
     return `scrypt$${salt.toString("hex")}$${derivedKey.toString("hex")}`;
   }
 
-  private async verifyPassword(password: string, storedHash: string) {
+  private async verifyPassword(password: string, storedHash: string | null) {
+    if (!storedHash) return false;
     const [algorithm, saltHex, keyHex] = storedHash.split("$");
     if (algorithm !== "scrypt" || !saltHex || !keyHex) return false;
     const expectedKey = Buffer.from(keyHex, "hex");

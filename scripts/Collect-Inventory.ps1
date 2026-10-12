@@ -1,7 +1,6 @@
 param(
-    [string]$ApiEndpoint = "http://10.22.28.12:3000/api/v1/inventory",
-    [bool]$SkipCertValidation = $false,
-    [switch]$PauseOnError
+    [string]$ApiEndpoint = "http://10.22.28.82:3000/api/v1/inventory",
+    [bool]$SkipCertValidation = $false
 )
 
 Set-StrictMode -Version Latest
@@ -75,18 +74,6 @@ function Get-SafeProperty {
     return $DefaultValue
 }
 
-function Wait-OnError {
-    param(
-        [string]$Message
-    )
-
-    if ($PauseOnError) {
-        Write-Host ""
-        Write-Host $Message -ForegroundColor Yellow
-        Read-Host "Press Enter to close this window" | Out-Null
-    }
-}
-
 # ============================================================
 # START
 # ============================================================
@@ -95,9 +82,6 @@ Write-Log "=============================================="
 Write-Log " IT Asset Inventory Agent"
 Write-Log "=============================================="
 Write-Log "API Endpoint: $ApiEndpoint"
-if ($PauseOnError) {
-    Write-Log "Pause on error: enabled"
-}
 Write-Log ""
 
 # ============================================================
@@ -773,193 +757,7 @@ catch {
 }
 
 # ============================================================
-# 8. CONNECTED DISPLAYS AND PERIPHERALS
-# ============================================================
-
-Write-Log ""
-Write-Log "Collecting connected displays and peripherals..."
-
-$deviceComponents = @()
-$monitorIds = @{}
-$componentScanSucceeded = $false
-
-try {
-
-    $monitors = Get-CimInstance `
-        -Namespace "root\wmi" `
-        -ClassName WmiMonitorID `
-        -ErrorAction Stop
-
-    foreach ($monitor in $monitors) {
-
-        if (-not $monitor.Active) {
-            continue
-        }
-
-        $manufacturer = -join @(
-            $monitor.ManufacturerName |
-                Where-Object { $_ -ne 0 } |
-                ForEach-Object { [char]$_ }
-        )
-        $model = -join @(
-            $monitor.ProductCodeID |
-                Where-Object { $_ -ne 0 } |
-                ForEach-Object { [char]$_ }
-        )
-        $serialNumber = -join @(
-            $monitor.SerialNumberID |
-                Where-Object { $_ -ne 0 } |
-                ForEach-Object { [char]$_ }
-        )
-        $friendlyName = -join @(
-            $monitor.UserFriendlyName |
-                Where-Object { $_ -ne 0 } |
-                ForEach-Object { [char]$_ }
-        )
-
-        $monitorName = if ($friendlyName.Trim()) {
-            $friendlyName.Trim()
-        }
-        elseif ($manufacturer.Trim() -or $model.Trim()) {
-            "$($manufacturer.Trim()) $($model.Trim())".Trim()
-        }
-        else {
-            "Connected monitor"
-        }
-
-        $deviceInstanceId = Get-SafeProperty `
-            $monitor `
-            "InstanceName" `
-            $null
-
-        if ($deviceInstanceId) {
-            $normalizedMonitorId = (
-                $deviceInstanceId.ToLowerInvariant() -replace "_\d+$", ""
-            ).TrimEnd("\")
-            $monitorIds[$normalizedMonitorId] = $true
-        }
-
-        $specifications = @{}
-        if ($serialNumber.Trim()) {
-            $specifications.serialNumber = $serialNumber.Trim()
-        }
-        if ($deviceInstanceId) {
-            $specifications.deviceInstanceId = $deviceInstanceId
-        }
-
-        $deviceComponents += @{
-            category = "Screen"
-            name = $monitorName
-            manufacturer = if ($manufacturer.Trim()) {
-                $manufacturer.Trim()
-            }
-            else {
-                $null
-            }
-            model = if ($model.Trim()) { $model.Trim() } else { $null }
-            specifications = $specifications
-        }
-    }
-}
-catch {
-
-    Write-Log `
-        "Monitor identification via WMI failed: $($_.Exception.Message)" `
-        "WARN"
-}
-
-try {
-
-    $presentDevices = Get-PnpDevice `
-        -PresentOnly `
-        -ErrorAction Stop
-
-    $componentScanSucceeded = $true
-
-    $peripheralClasses = @(
-        "Mouse",
-        "Keyboard",
-        "HIDClass",
-        "USB",
-        "Bluetooth",
-        "AudioEndpoint",
-        "Monitor"
-    )
-
-    $seenDeviceIds = @{}
-
-    foreach ($device in $presentDevices) {
-
-        $deviceClass = Get-SafeProperty $device "Class" ""
-        $deviceName = Get-SafeProperty $device "FriendlyName" $null
-        $deviceInstanceId = Get-SafeProperty $device "InstanceId" $null
-
-        if ($deviceClass -notin $peripheralClasses -or -not $deviceName) {
-            continue
-        }
-
-        if ($deviceClass -eq "USB" -and
-            $deviceName -match "(?i)root hub|generic usb hub|usb hub|host controller") {
-            continue
-        }
-
-        if ($deviceInstanceId) {
-            $normalizedId = $deviceInstanceId.ToLowerInvariant()
-            if ($seenDeviceIds.ContainsKey($normalizedId)) {
-                continue
-            }
-            $seenDeviceIds[$normalizedId] = $true
-        }
-
-        if ($deviceClass -eq "Monitor" -and $deviceInstanceId) {
-            $normalizedId = (
-                $deviceInstanceId.ToLowerInvariant() -replace "_\d+$", ""
-            ).TrimEnd("\")
-            if ($monitorIds.ContainsKey($normalizedId)) {
-                continue
-            }
-        }
-
-        $category = switch ($deviceClass) {
-            "Mouse" { "Mouse" }
-            "Keyboard" { "Keyboard" }
-            "Monitor" { "Screen" }
-            default { "External Device" }
-        }
-
-        $manufacturer = Get-SafeProperty `
-            $device `
-            "Manufacturer" `
-            $null
-
-        $specifications = @{
-            deviceClass = $deviceClass
-        }
-        if ($deviceInstanceId) {
-            $specifications.deviceInstanceId = $deviceInstanceId
-        }
-
-        $deviceComponents += @{
-            category = $category
-            name = $deviceName
-            manufacturer = $manufacturer
-            model = $null
-            specifications = $specifications
-        }
-    }
-}
-catch {
-
-    Write-Log `
-        "Plug-and-Play peripheral collection failed: $($_.Exception.Message)" `
-        "WARN"
-}
-
-Write-Log `
-    "Connected displays and peripherals found: $($deviceComponents.Count)"
-
-# ============================================================
-# 9. BUILD PAYLOAD
+# 8. BUILD PAYLOAD
 # ============================================================
 
 Write-Log ""
@@ -980,15 +778,6 @@ $payloadObject = @{
     gitConfig    = $gitConfig
 }
 
-if ($componentScanSucceeded) {
-    $payloadObject.components = $deviceComponents
-}
-else {
-    Write-Log `
-        "Peripheral scan was incomplete; keeping previously collected components." `
-        "WARN"
-}
-
 $payloadJson = $payloadObject |
     ConvertTo-Json -Depth 10
 
@@ -996,13 +785,11 @@ Write-Log `
     "Payload size: $($payloadJson.Length) bytes"
 
 # ============================================================
-# 10. TEST API CONNECTION
+# 9. TEST API CONNECTION
 # ============================================================
 
 Write-Log ""
 Write-Log "Testing connection to API..."
-
-$uri = $null
 
 try {
 
@@ -1018,26 +805,11 @@ try {
         Write-Log `
             "TCP connection successful: $($uri.Host):$($uri.Port)" `
             "SUCCESS"
-        if ($connectionTest.RemoteAddress) {
-            Write-Log "Remote address: $($connectionTest.RemoteAddress)"
-        }
-        if ($connectionTest.SourceAddress) {
-            Write-Log "Source address: $($connectionTest.SourceAddress)"
-        }
-        if ($connectionTest.InterfaceAlias) {
-            Write-Log "Network interface: $($connectionTest.InterfaceAlias)"
-        }
     }
     else {
 
-        $remoteAddress = if ($connectionTest.RemoteAddress) {
-            $connectionTest.RemoteAddress
-        }
-        else {
-            "unresolved"
-        }
-
-        throw "TCP connection to $($uri.Host):$($uri.Port) failed (remote address: $remoteAddress). Check DNS, routing, firewall rules, and whether the API is listening on this interface and port."
+        throw `
+            "Cannot connect to $($uri.Host):$($uri.Port)"
     }
 }
 catch {
@@ -1046,31 +818,11 @@ catch {
         "API connectivity test failed: $($_.Exception.Message)" `
         "ERROR"
 
-    if ($uri) {
-        try {
-            $resolvedAddresses = [System.Net.Dns]::GetHostAddresses(
-                $uri.DnsSafeHost
-            ) | ForEach-Object { $_.IPAddressToString }
-
-            if ($resolvedAddresses) {
-                Write-Log "Resolved addresses: $($resolvedAddresses -join ', ')" "ERROR"
-            }
-            else {
-                Write-Log "DNS returned no addresses for $($uri.DnsSafeHost)" "ERROR"
-            }
-        }
-        catch {
-            Write-Log "DNS lookup failed: $($_.Exception.Message)" "ERROR"
-        }
-    }
-
-    Write-Log "Check that this client can reach the target host and TCP port, and that the API/reverse proxy is listening on that address." "ERROR"
-    Wait-OnError "API connectivity test failed. Review the error details above."
     exit 1
 }
 
 # ============================================================
-# 11. POST INVENTORY
+# 10. POST INVENTORY
 # ============================================================
 
 Write-Log ""
@@ -1178,7 +930,6 @@ try {
             "Server returned HTTP $statusCode" `
             "ERROR"
 
-        Wait-OnError "Inventory upload failed. Review the error details above."
         exit 1
     }
 }
@@ -1190,11 +941,6 @@ catch {
     Write-Log `
         "Error: $($_.Exception.Message)" `
         "ERROR"
-    Write-Log "Exception type: $($_.Exception.GetType().FullName)" "ERROR"
-
-    if ($_.Exception.InnerException) {
-        Write-Log "Inner error: $($_.Exception.InnerException.Message)" "ERROR"
-    }
 
     # ========================================================
     # READ HTTP ERROR RESPONSE
@@ -1246,7 +992,6 @@ catch {
         }
     }
 
-    Wait-OnError "Inventory upload failed. Review the error details above."
     exit 1
 }
 

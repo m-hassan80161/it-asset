@@ -34,6 +34,8 @@ export const ticketsApi = {
     category: TicketCategory;
     priority: TicketPriority;
     branch?: string;
+    requesterId?: string;
+    requesterEmail?: string;
     remoteSupportType?: RemoteSupportType;
     remoteSupportId?: string;
   }) => apiClient.post<Ticket>("/tickets", input),

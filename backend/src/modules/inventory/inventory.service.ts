@@ -253,10 +253,42 @@ export class InventoryService {
     });
   }
 
+  async listBranches() {
+    return this.prisma.branch.findMany({ orderBy: { name: "asc" } });
+  }
+
+  async createBranch(name: string) {
+    const normalizedName = name.trim();
+    if (!normalizedName) throw new BadRequestException("Branch name is required");
+    return this.prisma.branch.create({ data: { name: normalizedName } });
+  }
+
+  async deleteBranch(name: string) {
+    const branch = await this.prisma.branch.findUnique({ where: { name } });
+    if (!branch) throw new NotFoundException("Branch not found");
+    const [accounts, rules, tickets] = await Promise.all([
+      this.prisma.adminAccount.count({
+        where: {
+          OR: [{ branch: name }, { managedBranches: { has: name } }],
+        },
+      }),
+      this.prisma.branchPattern.count({ where: { branch: name } }),
+      this.prisma.ticket.count({ where: { branch: name } }),
+    ]);
+    if (accounts || rules || tickets) {
+      throw new BadRequestException("Branch is still in use by accounts, device rules, or tickets");
+    }
+    await this.prisma.branch.delete({ where: { name } });
+    return { name, status: "deleted" };
+  }
+
   async createBranchPattern(actorId: string, dto: BranchPatternDto) {
     const pattern = dto.pattern.trim();
     const branch = dto.branch.trim();
     if (!pattern || !branch) throw new BadRequestException("Pattern and branch are required");
+    if (!(await this.prisma.branch.findUnique({ where: { name: branch } }))) {
+      throw new BadRequestException("Select a branch from the configured branch list");
+    }
     return this.prisma.branchPattern.create({
       data: { source: dto.source, pattern, branch, createdById: actorId },
     });

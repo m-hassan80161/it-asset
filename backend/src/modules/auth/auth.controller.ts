@@ -10,6 +10,7 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from "@nestjs/common";
 import { Request, Response } from "express";
 import { ApiTags } from "@nestjs/swagger";
@@ -23,6 +24,12 @@ import { CreateLocalUserDto } from "./dto/create-local-user.dto";
 import { AuthenticatedUser } from "./authenticated-user";
 import { UpdateLocalUserDto } from "./dto/update-local-user.dto";
 import { DeleteLocalUserDto } from "./dto/delete-local-user.dto";
+import { Roles } from "./roles.decorator";
+import { RolesGuard } from "./roles.guard";
+import { UserRole } from "@prisma/client";
+import { CpanelService } from "./cpanel.service";
+import { LinkCpanelAccountDto } from "./dto/link-cpanel-account.dto";
+import { ProvisionCpanelEmployeeDto } from "./dto/provision-cpanel-employee.dto";
 
 interface AuthenticatedRequest extends Request {
   adminSessionId?: string;
@@ -32,7 +39,10 @@ interface AuthenticatedRequest extends Request {
 @ApiTags("auth")
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly cpanelService: CpanelService,
+  ) {}
 
   @Public()
   @Post("login")
@@ -40,10 +50,11 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const session = await this.authService.login(dto.username, dto.password);
+    const session = await this.authService.login(dto.username, dto.password, dto.rememberMe);
+    const maxAgeMs = session.expiresAt.getTime() - Date.now();
     response.setHeader(
       "Set-Cookie",
-      this.sessionCookie(session.token, SESSION_DURATION_MS),
+      this.sessionCookie(session.token, dto.rememberMe ? maxAgeMs : SESSION_DURATION_MS),
     );
     return { username: session.username, expiresAt: session.expiresAt };
   }
@@ -64,6 +75,45 @@ export class AuthController {
   listUsers(@Req() request: AuthenticatedRequest) {
     if (!request.user) throw new UnauthorizedException("Authentication required");
     return this.authService.listUsers(request.user);
+  }
+
+  @Get("cpanel/accounts")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  listCpanelAccounts() {
+    return this.cpanelService.listAccounts();
+  }
+
+  @Post("cpanel/sync")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  syncCpanelAccounts(@Req() request: AuthenticatedRequest) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.cpanelService.syncAccounts(request.user.id);
+  }
+
+  @Post("cpanel/accounts/:username/link")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  linkCpanelAccount(
+    @Req() request: AuthenticatedRequest,
+    @Param("username") username: string,
+    @Body() dto: LinkCpanelAccountDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.cpanelService.linkExistingAccount(username, dto.itamAccountId, request.user.id);
+  }
+
+  @Post("cpanel/accounts/:username/provision-employee")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_ADMIN)
+  provisionCpanelEmployee(
+    @Req() request: AuthenticatedRequest,
+    @Param("username") username: string,
+    @Body() dto: ProvisionCpanelEmployeeDto,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.cpanelService.createEmployeeAccount(username, dto.branch, request.user.id);
   }
 
   @Post("users")

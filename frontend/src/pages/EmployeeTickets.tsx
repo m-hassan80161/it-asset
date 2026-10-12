@@ -13,6 +13,7 @@ interface EmployeeTicketsProps {
 export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [status, setStatus] = useState<TicketStatus | "">("");
+  const [showTickets, setShowTickets] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -37,6 +38,7 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
       <section className="mx-auto max-w-3xl space-y-5">
         <Link to="/tickets" className="text-blue-700 hover:underline">← العودة إلى طلباتي</Link>
         <h1 className="text-3xl font-bold">طلب دعم جديد</h1>
+        {user.branch && <p className="text-slate-600">فرعك: <strong>{user.branch}</strong></p>}
         <TicketForm branch={user.branch ?? ""} onCreated={loadTickets} />
       </section>
     );
@@ -48,8 +50,19 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
         <div>
           <h1 className="text-3xl font-bold">طلباتي</h1>
           <p className="mt-2 text-slate-600">تابع حالة الطلبات وتواصل مع فريق الدعم.</p>
+          {user.branch && <p className="mt-1 text-sm text-slate-600">فرعك: <strong>{user.branch}</strong></p>}
         </div>
-        <Link to="/tickets/new" className="rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800">طلب جديد</Link>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-expanded={showTickets}
+            onClick={() => setShowTickets((visible) => !visible)}
+            className="rounded border px-4 py-2"
+          >
+            {showTickets ? "إخفاء الطلبات المعروضة" : "عرض الطلبات"}
+          </button>
+          <Link to="/tickets/new" className="rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800">طلب جديد</Link>
+        </div>
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
       <label className="inline-flex items-center gap-2 text-sm">
@@ -59,7 +72,7 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
           {["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"].map((value) => <option key={value}>{value}</option>)}
         </select>
       </label>
-      {loading ? <p>جارٍ تحميل الطلبات...</p> : tickets.length === 0 ? (
+      {showTickets && (loading ? <p>جارٍ تحميل الطلبات...</p> : tickets.length === 0 ? (
         <p className="rounded-lg bg-white p-6 text-slate-600 shadow">لا توجد طلبات مطابقة.</p>
       ) : (
         <div className="space-y-4">
@@ -67,7 +80,7 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
             <TicketCard key={ticket.id} ticket={ticket} user={user} mode="employee" onRefresh={loadTickets} onError={setError} />
           ))}
         </div>
-      )}
+      ))}
     </section>
   );
 }

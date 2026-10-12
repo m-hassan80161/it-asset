@@ -44,8 +44,8 @@ api.interceptors.response.use(
 export const apiClient = api;
 
 export const authApi = {
-  login: (username: string, password: string) =>
-    api.post("/auth/login", { username, password }),
+  login: (username: string, password: string, rememberMe = false) =>
+    api.post("/auth/login", { username, password, rememberMe }),
   me: () => api.get("/auth/me"),
   logout: () => api.post("/auth/logout"),
   settings: () => api.get("/auth/settings"),
@@ -62,7 +62,38 @@ export const authApi = {
   admins: () => api.get<ManagedAdmin[]>("/auth/admins"),
   assignAdminBranch: (adminId: string, branch: string) =>
     api.put(`/auth/admins/${adminId}/branch`, { branch }),
+  cpanelAccounts: () => api.get<CpanelAccount[]>("/auth/cpanel/accounts"),
+  syncCpanelAccounts: () => api.post<CpanelSyncSummary>("/auth/cpanel/sync"),
+  linkCpanelAccount: (username: string, itamAccountId: string) =>
+    api.post(`/auth/cpanel/accounts/${encodeURIComponent(username)}/link`, { itamAccountId }),
+  provisionCpanelEmployee: (username: string, branch: string) =>
+    api.post(`/auth/cpanel/accounts/${encodeURIComponent(username)}/provision-employee`, { branch }),
 };
+
+export interface CpanelAccount {
+  username: string;
+  domain: string;
+  hostingAccountUsername: string | null;
+  status: "ACTIVE" | "SUSPENDED" | "MISSING";
+  lastSyncedAt: string;
+  lastSeenAt: string;
+  itamAccountId: string | null;
+  itamAccount: Pick<AppUser, "id" | "username" | "fullName" | "role" | "branch"> & {
+    isActive: boolean;
+    authProvider: "LOCAL" | "CPANEL";
+  } | null;
+}
+
+export interface CpanelSyncSummary {
+  discovered: number;
+  active: number;
+  suspended: number;
+  missing: number;
+  provisioned: number;
+  linked: number;
+  usernameConflicts: number;
+  syncedAt: string;
+}
 
 export type UserRole = "EMPLOYEE" | "ADMIN" | "MANAGER" | "SUPER_ADMIN";
 export type TicketCategory = "HARDWARE" | "SOFTWARE" | "NETWORK" | "PRINTER" | "OTHER";
@@ -79,6 +110,7 @@ export interface AppUser {
   username: string;
   fullName: string;
   role: UserRole;
+  authProvider?: "LOCAL" | "CPANEL";
   branch: string | null;
   managedBranches: string[];
 }
@@ -193,6 +225,9 @@ export const inventoryApi = {
   exportDevices: (branch?: string) =>
     api.get<ExportDevice[]>("/inventory/export", { params: branch ? { branch } : {} }),
   branchPatterns: () => api.get<BranchPattern[]>("/inventory/branch-patterns"),
+  branches: () => api.get<Array<{ name: string }>>("/inventory/branches"),
+  createBranch: (name: string) => api.post<{ name: string }>("/inventory/branches", { name }),
+  deleteBranch: (name: string) => api.delete(`/inventory/branches/${encodeURIComponent(name)}`),
   createBranchPattern: (rule: Omit<BranchPattern, "id" | "createdById" | "createdAt" | "updatedAt">) =>
     api.post<BranchPattern>("/inventory/branch-patterns", rule),
   deleteBranchPattern: (id: string) => api.delete(`/inventory/branch-patterns/${id}`),

@@ -5,9 +5,11 @@ import {
   CreateLocalUserInput,
   UpdateLocalUserInput,
   UserRole,
+  inventoryApi,
 } from "../lib/api";
 
 type ManagedUser = AppUser & {
+  authProvider: "LOCAL" | "CPANEL";
   isActive: boolean;
   createdAt: string;
   deleteAfter: string | null;
@@ -39,8 +41,28 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [branches, setBranches] = useState<Array<{ name: string }>>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState(0);
   const isSuperAdmin = user.role === "SUPER_ADMIN";
   const canDelete = isSuperAdmin || user.role === "ADMIN";
+  const query = search.trim().toLocaleLowerCase();
+  const filteredUsers = users.filter((account) =>
+    !query ||
+    account.fullName.toLocaleLowerCase().includes(query) ||
+    account.username.toLocaleLowerCase().includes(query) ||
+    account.role.toLocaleLowerCase().includes(query) ||
+    (account.branch ?? "").toLocaleLowerCase().includes(query) ||
+    account.managedBranches.some((value) => value.toLocaleLowerCase().includes(query)),
+  ).sort((a, b) => a.fullName.localeCompare(b.fullName, "ar", { sensitivity: "base" }));
+  const pageSize = 20;
+  const pageCount = Math.ceil(filteredUsers.length / pageSize);
+  const displayedUsers = filteredUsers.slice(page * pageSize, (page + 1) * pageSize);
+
+  useEffect(() => {
+    setPage((current) => pageCount === 0 ? 0 : Math.min(current, pageCount - 1));
+  }, [pageCount]);
 
   const loadUsers = async () => {
     setError("");
@@ -55,7 +77,16 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
   };
 
   useEffect(() => {
+    setPage(0);
+  }, [search]);
+
+  useEffect(() => {
     void loadUsers();
+    if (isSuperAdmin) {
+      inventoryApi.branches()
+        .then(({ data }) => setBranches(data))
+        .catch(() => setError("تعذر تحميل قائمة الفروع. أضف الفروع من إعدادات الفروع أولًا."));
+    }
   }, []);
 
   const createUser = async (event: FormEvent<HTMLFormElement>) => {
@@ -79,6 +110,8 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
       setPassword("");
       setBranch("");
       setManagedBranches("");
+      setCreateOpen(false);
+      setPage(0);
       setNotice("تم إنشاء الحساب.");
       await loadUsers();
     } catch {
@@ -170,13 +203,23 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
               ? `يمكنك تعديل أو تعطيل حسابات الموظفين في فرع ${user.branch ?? "الخاص بك"} فقط.`
               : "يمكنك تعديل بيانات حسابك فقط."}
         </p>
+        {isSuperAdmin && (
+          <button
+            type="button"
+            onClick={() => { setCreateOpen(true); setEditing(null); setError(""); }}
+            className="mt-4 rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800"
+          >
+            إضافة حساب
+          </button>
+        )}
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
       {notice && <p role="status" className="rounded bg-green-100 p-3 text-green-800">{notice}</p>}
 
-      {isSuperAdmin && (
-        <form onSubmit={createUser} className="grid gap-4 rounded-lg bg-white p-6 shadow md:grid-cols-2">
-          <h2 className="text-xl font-semibold md:col-span-2">إنشاء حساب</h2>
+      {isSuperAdmin && createOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 pt-8">
+        <form role="dialog" aria-modal="true" onSubmit={createUser} className="my-auto grid w-full max-w-2xl gap-4 rounded-lg bg-white p-6 shadow-2xl md:grid-cols-2">
+          <h2 className="text-xl font-semibold md:col-span-2">إضافة حساب</h2>
           <label className="text-sm font-medium">الاسم الكامل
             <input required maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
@@ -193,29 +236,52 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
           </label>
           {(role === "EMPLOYEE" || role === "ADMIN") && (
             <label className="text-sm font-medium md:col-span-2">الفرع
-              <input required value={branch} onChange={(event) => setBranch(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+              <select required value={branch} onChange={(event) => setBranch(event.target.value)} className="mt-1 w-full rounded border px-3 py-2">
+                <option value="">اختر الفرع</option>
+                {branches.map(({ name }) => <option key={name} value={name}>{name}</option>)}
+              </select>
             </label>
           )}
           {role === "MANAGER" && (
             <label className="text-sm font-medium md:col-span-2">الفروع المدارة (افصل بينها بفاصلة)
-              <input required value={managedBranches} onChange={(event) => setManagedBranches(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" placeholder="Cairo, Alexandria" />
+              <select required multiple value={managedBranches.split(", ").filter(Boolean)} onChange={(event) => setManagedBranches(Array.from(event.target.selectedOptions, (option) => option.value).join(", "))} className="mt-1 min-h-28 w-full rounded border px-3 py-2">
+                {branches.map(({ name }) => <option key={name} value={name}>{name}</option>)}
+              </select>
             </label>
           )}
-          <button className="rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800 md:col-span-2">إنشاء الحساب</button>
+          <div className="flex gap-2 md:col-span-2">
+            <button className="rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800">إنشاء الحساب</button>
+            <button type="button" onClick={() => setCreateOpen(false)} className="rounded border px-4 py-2">إلغاء</button>
+          </div>
         </form>
+        </div>
       )}
 
       {editing && (
-        <form onSubmit={saveEdit} className="grid gap-4 rounded-lg border border-blue-200 bg-blue-50 p-6 md:grid-cols-2">
-          <h2 className="text-xl font-semibold md:col-span-2">تعديل حساب {editing.fullName}</h2>
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 pt-8"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setEditing(null);
+          }}
+        >
+        <form
+          onSubmit={saveEdit}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-account-title"
+          className="my-auto grid w-full max-w-2xl gap-4 rounded-lg bg-white p-6 shadow-2xl md:grid-cols-2"
+        >
+          <h2 id="edit-account-title" className="text-xl font-semibold md:col-span-2">تعديل حساب {editing.fullName}</h2>
           <label className="text-sm font-medium">الاسم الكامل
             <input required maxLength={120} value={editName} onChange={(event) => setEditName(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
           <label className="text-sm font-medium">اسم المستخدم
-            <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={editUsername} onChange={(event) => setEditUsername(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+            <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={editUsername} onChange={(event) => setEditUsername(event.target.value)} disabled={editing.authProvider === "CPANEL"} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-slate-100" />
           </label>
           <label className="text-sm font-medium md:col-span-2">كلمة مرور جديدة (اختياري، 12 حرفًا على الأقل)
-            <input type="password" minLength={12} maxLength={256} value={editPassword} onChange={(event) => setEditPassword(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+            <input type="password" minLength={12} maxLength={256} value={editPassword} onChange={(event) => setEditPassword(event.target.value)} disabled={editing.authProvider === "CPANEL"} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-slate-100" />
+            {editing.authProvider === "CPANEL" && <span className="mt-1 block text-xs text-slate-600">Username and password are managed in cPanel.</span>}
           </label>
           {isSuperAdmin && (
             <>
@@ -226,12 +292,17 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
               </label>
               {(editRole === "EMPLOYEE" || editRole === "ADMIN") && (
                 <label className="text-sm font-medium">الفرع
-                  <input required value={editBranch} onChange={(event) => setEditBranch(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+                  <select required value={editBranch} onChange={(event) => setEditBranch(event.target.value)} className="mt-1 w-full rounded border px-3 py-2">
+                    <option value="">اختر الفرع</option>
+                    {branches.map(({ name }) => <option key={name} value={name}>{name}</option>)}
+                  </select>
                 </label>
               )}
               {editRole === "MANAGER" && (
                 <label className="text-sm font-medium md:col-span-2">الفروع المدارة (افصل بينها بفاصلة)
-                  <input required value={editManagedBranches} onChange={(event) => setEditManagedBranches(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+                  <select required multiple value={editManagedBranches.split(", ").filter(Boolean)} onChange={(event) => setEditManagedBranches(Array.from(event.target.selectedOptions, (option) => option.value).join(", "))} className="mt-1 min-h-28 w-full rounded border px-3 py-2">
+                    {branches.map(({ name }) => <option key={name} value={name}>{name}</option>)}
+                  </select>
                 </label>
               )}
               <label className="flex items-center gap-2 text-sm md:col-span-2">
@@ -245,6 +316,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
             <button type="button" onClick={() => setEditing(null)} className="rounded border px-4 py-2">إلغاء</button>
           </div>
         </form>
+        </div>
       )}
 
       {deleteTarget && (
@@ -265,12 +337,22 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
       )}
 
       <section className="overflow-x-auto rounded-lg bg-white shadow">
-        <h2 className="p-5 text-xl font-semibold">الحسابات ({users.length})</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <h2 className="text-xl font-semibold">الحسابات ({filteredUsers.length} من {users.length})</h2>
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="ابحث بالاسم أو البريد أو الدور أو الفرع"
+            aria-label="البحث في الحسابات"
+            className="w-full rounded border px-3 py-2 sm:max-w-md"
+          />
+        </div>
         {loading ? <p className="p-5">جارٍ تحميل الحسابات...</p> : (
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-100"><tr><th className="p-3">الاسم</th><th className="p-3">المستخدم</th><th className="p-3">الدور</th><th className="p-3">النطاق</th><th className="p-3">الحالة</th><th className="p-3">إجراءات</th></tr></thead>
             <tbody className="divide-y">
-              {users.map((account) => (
+              {displayedUsers.map((account) => (
                 <tr key={account.id} className={!account.isActive ? "bg-slate-50 text-slate-500" : ""}>
                   <td className="p-3">{account.fullName}</td>
                   <td className="p-3">{account.username}</td>
@@ -289,9 +371,26 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
                   </td>
                 </tr>
               ))}
-              {!users.length && <tr><td colSpan={6} className="p-6 text-center text-slate-500">لا توجد حسابات ضمن صلاحيتك.</td></tr>}
+              {!filteredUsers.length && <tr><td colSpan={6} className="p-6 text-center text-slate-500">{users.length ? "لا توجد حسابات مطابقة للبحث." : "لا توجد حسابات ضمن صلاحيتك."}</td></tr>}
             </tbody>
           </table>
+        )}
+        {!loading && pageCount > 1 && (
+          <div className="flex items-center justify-center gap-3 border-t p-4">
+            <button
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              className="rounded border px-3 py-1 disabled:opacity-50"
+            >السابق</button>
+            <span className="text-sm text-slate-600">صفحة {page + 1} من {pageCount} · 20 حسابًا لكل صفحة</span>
+            <button
+              type="button"
+              disabled={page + 1 >= pageCount}
+              onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+              className="rounded border px-3 py-1 disabled:opacity-50"
+            >التالي</button>
+          </div>
         )}
       </section>
     </section>

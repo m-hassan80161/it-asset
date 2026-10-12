@@ -8,6 +8,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 FROM node
+
 WORKDIR /app
 RUN npm install -g serve
 COPY --from=build /app/dist /app/dist

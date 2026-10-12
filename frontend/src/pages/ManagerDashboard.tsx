@@ -32,10 +32,11 @@ function csvCell(value: string | number | null | undefined) {
 
 function downloadCsv(tickets: Ticket[]) {
   const rows = [
-    ["Ticket ID", "Title", "Status", "Branch", "Assigned Admin", "Priority"],
+    ["Ticket ID", "Title", "Requester", "Status", "Branch", "Assigned Admin", "Priority"],
     ...tickets.map((ticket) => [
       ticket.id,
       ticket.title,
+      `${ticket.requester?.fullName ?? ticket.requesterName} (${ticket.requester?.username ?? ticket.requesterUsername})`,
       ticket.status,
       ticket.branch,
       ticket.assignedAdmin?.fullName ?? "",
@@ -65,6 +66,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [showTickets, setShowTickets] = useState(true);
 
   const load = useCallback(async () => {
     setError("");
@@ -144,7 +146,9 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
     ...stats.admins.map((admin) => admin.averageResolutionMinutes ?? 0),
   );
   const adminsForBranch = (ticketBranch: string) =>
-    admins.filter((admin) => admin.branch === ticketBranch && admin.isActive);
+    admins.filter((admin) => admin.isActive && (
+      user.role === "SUPER_ADMIN" || admin.branch === ticketBranch
+    ));
   const branchChoices = [...new Set([
     ...user.managedBranches,
     ...stats.byBranch.map((item) => item.branch),
@@ -169,7 +173,17 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           <h1 className="text-3xl font-bold">لوحة متابعة المدير</h1>
           <p className="mt-2 text-slate-600">الفروع ضمن نطاق الحساب: {user.managedBranches.join("، ") || "كل الفروع"}</p>
         </div>
-        <button onClick={() => void load()} className="rounded border px-4 py-2">تحديث</button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            aria-expanded={showTickets}
+            onClick={() => setShowTickets((visible) => !visible)}
+            className="rounded border px-4 py-2"
+          >
+            {showTickets ? "إخفاء التيكتس المعروضة" : "عرض التيكتس"}
+          </button>
+          <button onClick={() => void load()} className="rounded border px-4 py-2">تحديث</button>
+        </div>
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
 
@@ -234,7 +248,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
         </section>
       </div>
 
-      <section className="space-y-4 rounded-lg bg-white p-5 shadow">
+      {showTickets && <section className="space-y-4 rounded-lg bg-white p-5 shadow">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold">كل تيكتس النطاق ({total})</h2>
           <button onClick={() => void exportAllFiltered()} disabled={exporting || total === 0} className="rounded bg-green-700 px-4 py-2 text-white disabled:opacity-50">
@@ -261,12 +275,13 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-100"><tr><th className="p-3">Ticket ID</th><th className="p-3">العنوان</th><th className="p-3">الحالة</th><th className="p-3">الفرع</th><th className="p-3">الأدمن المسؤول</th><th className="p-3">الأولوية</th><th className="p-3">الإسناد</th></tr></thead>
+            <thead className="bg-slate-100"><tr><th className="p-3">Ticket ID</th><th className="p-3">العنوان</th><th className="p-3">مقدم الطلب</th><th className="p-3">الحالة</th><th className="p-3">الفرع</th><th className="p-3">الأدمن المسؤول</th><th className="p-3">الأولوية</th><th className="p-3">الإسناد</th></tr></thead>
             <tbody className="divide-y">
               {tickets.map((ticket) => (
                 <tr key={ticket.id}>
                   <td className="max-w-32 truncate p-3 font-mono" title={ticket.id}>{ticket.id}</td>
                   <td className="p-3">{ticket.title}</td>
+                  <td className="p-3">{ticket.requester?.fullName ?? ticket.requesterName}</td>
                   <td className="p-3">{ticket.status}</td>
                   <td className="p-3">{ticket.branch}</td>
                   <td className="p-3">{ticket.assignedAdmin?.fullName ?? ticket.assignedAdminName ?? "غير مسند"}</td>
@@ -284,7 +299,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
                   </td>
                 </tr>
               ))}
-              {!tickets.length && <tr><td colSpan={7} className="p-5 text-center text-slate-500">لا توجد تيكتس مطابقة.</td></tr>}
+              {!tickets.length && <tr><td colSpan={8} className="p-5 text-center text-slate-500">لا توجد تيكتس مطابقة.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -292,7 +307,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           <button disabled={!skip} onClick={() => setSkip(Math.max(0, skip - 100))} className="rounded border px-3 py-1 disabled:opacity-50">السابق</button>
           <button disabled={skip + tickets.length >= total} onClick={() => setSkip(skip + 100)} className="rounded border px-3 py-1 disabled:opacity-50">التالي</button>
         </div>
-      </section>
+      </section>}
 
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">إدارة الأدمنز والأداء</h2>

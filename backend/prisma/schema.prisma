@@ -59,27 +59,64 @@ model BranchPattern {
   @@index([branch])
 }
 
+model Branch {
+  name      String   @id
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model AdminAccount {
-  id              String          @id
-  username        String          @unique
-  passwordHash    String
-  fullName        String          @default("System Administrator")
-  role            UserRole        @default(SUPER_ADMIN)
-  branch          String?
-  managedBranches String[]        @default([])
-  isActive        Boolean         @default(true)
-  deleteAfter     DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  sessions        AdminSession[]
-  ticketsCreated  Ticket[]        @relation("TicketRequester")
-  ticketsAssigned Ticket[]        @relation("TicketAssignedAdmin")
-  ticketsManaged  Ticket[]        @relation("TicketManager")
-  ticketComments  TicketComment[]
+  id                       String                  @id
+  username                 String                  @unique
+  passwordHash             String?
+  fullName                 String                  @default("System Administrator")
+  role                     UserRole                @default(SUPER_ADMIN)
+  authProvider             AuthProvider            @default(LOCAL)
+  branch                   String?
+  managedBranches          String[]                @default([])
+  isActive                 Boolean                 @default(true)
+  deleteAfter              DateTime?
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  sessions                 AdminSession[]
+  cpanelAccount            CpanelAccount?
+  ticketsCreated           Ticket[]                @relation("TicketRequester")
+  ticketsAssigned          Ticket[]                @relation("TicketAssignedAdmin")
+  ticketsResolved          Ticket[]                @relation("TicketResolvedAdmin")
+  ticketsManaged           Ticket[]                @relation("TicketManager")
+  ticketComments           TicketComment[]
   transferRequestsSent     TicketTransferRequest[] @relation("TicketTransferRequester")
   transferRequestsReceived TicketTransferRequest[] @relation("TicketTransferRecipient")
 
   @@index([isActive, deleteAfter])
+}
+
+enum AuthProvider {
+  LOCAL
+  CPANEL
+}
+
+enum CpanelAccountStatus {
+  ACTIVE
+  SUSPENDED
+  MISSING
+}
+
+model CpanelAccount {
+  username               String              @id
+  domain                 String
+  hostingAccountUsername String?
+  status                 CpanelAccountStatus
+  lastSyncedAt           DateTime            @default(now())
+  lastSeenAt             DateTime            @default(now())
+  itamAccountId          String?             @unique
+  itamAccount            AdminAccount?       @relation(fields: [itamAccountId], references: [id], onDelete: SetNull)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  @@index([status])
+  @@index([lastSeenAt])
+  @@index([hostingAccountUsername])
 }
 
 enum UserRole {
@@ -334,35 +371,38 @@ enum TicketPriority {
 }
 
 model Ticket {
-  id              String             @id @default(uuid())
-  title           String
-  description     String
-  category        TicketCategory
-  priority        TicketPriority     @default(MEDIUM)
-  status          TicketStatus       @default(OPEN)
-  requesterId     String?
-  requester       AdminAccount?      @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: SetNull)
-  requesterUsername String              @default("unknown")
-  requesterName     String              @default("Unknown user")
-  branch          String
-  departmentId    String?
-  remoteSupportType RemoteSupportType?
-  remoteSupportId   String?
-  assignedAdminId String?
-  assignedAdmin   AdminAccount?      @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
-  assignedAdminName String?
+  id                    String                  @id @default(uuid())
+  title                 String
+  description           String
+  category              TicketCategory
+  priority              TicketPriority          @default(MEDIUM)
+  status                TicketStatus            @default(OPEN)
+  requesterId           String?
+  requester             AdminAccount?           @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: SetNull)
+  requesterUsername     String                  @default("unknown")
+  requesterName         String                  @default("Unknown user")
+  branch                String
+  departmentId          String?
+  remoteSupportType     RemoteSupportType?
+  remoteSupportId       String?
+  assignedAdminId       String?
+  assignedAdmin         AdminAccount?           @relation("TicketAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  assignedAdminName     String?
   assignedAdminUsername String?
-  managerId       String?
-  manager          AdminAccount?      @relation("TicketManager", fields: [managerId], references: [id], onDelete: SetNull)
-  attachments     TicketAttachment[]
-  comments        TicketComment[]
-  transferRequests TicketTransferRequest[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  resolvedAt      DateTime?
+  resolvedById          String?
+  resolvedBy            AdminAccount?           @relation("TicketResolvedAdmin", fields: [resolvedById], references: [id], onDelete: SetNull)
+  managerId             String?
+  manager               AdminAccount?           @relation("TicketManager", fields: [managerId], references: [id], onDelete: SetNull)
+  attachments           TicketAttachment[]
+  comments              TicketComment[]
+  transferRequests      TicketTransferRequest[]
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  resolvedAt            DateTime?
 
   @@index([requesterId])
   @@index([assignedAdminId])
+  @@index([resolvedById])
   @@index([managerId])
   @@index([status])
   @@index([branch])
@@ -375,21 +415,21 @@ enum TicketTransferRequestStatus {
 }
 
 model TicketTransferRequest {
-  id                   String                       @id @default(uuid())
-  ticketId             String
-  ticket               Ticket                       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  requestedByAdminId   String?
-  requestedByAdmin     AdminAccount?                @relation("TicketTransferRequester", fields: [requestedByAdminId], references: [id], onDelete: SetNull)
-  requesterName        String
-  requesterUsername    String
-  targetAdminId        String?
-  targetAdmin          AdminAccount?                @relation("TicketTransferRecipient", fields: [targetAdminId], references: [id], onDelete: SetNull)
-  targetName           String
-  targetUsername       String
-  status               TicketTransferRequestStatus @default(PENDING)
-  message              String?
-  createdAt            DateTime                     @default(now())
-  respondedAt          DateTime?
+  id                 String                      @id @default(uuid())
+  ticketId           String
+  ticket             Ticket                      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  requestedByAdminId String?
+  requestedByAdmin   AdminAccount?               @relation("TicketTransferRequester", fields: [requestedByAdminId], references: [id], onDelete: SetNull)
+  requesterName      String
+  requesterUsername  String
+  targetAdminId      String?
+  targetAdmin        AdminAccount?               @relation("TicketTransferRecipient", fields: [targetAdminId], references: [id], onDelete: SetNull)
+  targetName         String
+  targetUsername     String
+  status             TicketTransferRequestStatus @default(PENDING)
+  message            String?
+  createdAt          DateTime                    @default(now())
+  respondedAt        DateTime?
 
   @@index([ticketId, status])
   @@index([targetAdminId, status])
@@ -411,9 +451,9 @@ model TicketAttachment {
 }
 
 model TicketComment {
-  id        String       @id @default(uuid())
-  ticketId  String
-  ticket    Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  id             String        @id @default(uuid())
+  ticketId       String
+  ticket         Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   authorId       String?
   author         AdminAccount? @relation(fields: [authorId], references: [id], onDelete: SetNull)
   authorUsername String        @default("unknown")

@@ -13,8 +13,8 @@ import { Login } from "./pages/Login";
 import { OnboardingWizard } from "./pages/OnboardingWizard";
 import { Settings } from "./pages/Settings";
 import { SoftwareInventory } from "./pages/SoftwareInventory";
-import { ManagerDashboard } from "./pages/ManagerDashboard";
 import { LocalUsers } from "./pages/LocalUsers";
+import { CpanelUsers } from "./pages/CpanelUsers";
 import { Navigation } from "./components/Navigation";
 
 type AuthState = "checking" | "authenticated" | "unauthenticated" | "error";
@@ -98,16 +98,16 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Navigation user={currentUser} loggingOut={loggingOut} onLogout={handleLogout} />
+      <div className="min-h-screen pt-16 md:ml-64 md:pt-0">
+        {authError && (
+          <div role="alert" className="mx-auto mt-4 max-w-7xl rounded bg-red-100 p-3 text-red-700">
+            {authError}
+          </div>
+        )}
 
-      {authError && (
-        <div role="alert" className="mx-auto mt-4 max-w-7xl rounded bg-red-100 p-3 text-red-700">
-          {authError}
-        </div>
-      )}
-
-      <main className="mx-auto max-w-7xl px-4 py-8">
-        <Routes>
-          <Route path="/" element={isAdmin ? <Home /> : <Navigate to="/tickets" replace />} />
+        <main className="mx-auto max-w-7xl px-4 py-8">
+          <Routes>
+          <Route path="/" element={<Navigate to={isAdmin || canMonitor ? "/manager/dashboard" : "/tickets"} replace />} />
           <Route path="/tickets" element={
             currentUser.role === "EMPLOYEE"
               ? <EmployeeTickets user={currentUser} />
@@ -125,13 +125,14 @@ export default function App() {
               ? <AdminDashboard user={currentUser} />
               : <Navigate to="/tickets" replace />
           } />
-          <Route path="/manager/dashboard" element={canMonitor ? <ManagerDashboard user={currentUser} /> : <Navigate to="/tickets" replace />} />
+          <Route path="/manager/dashboard" element={isAdmin || canMonitor ? <Home user={currentUser} /> : <Navigate to="/tickets" replace />} />
           <Route path="/manager/logs" element={canMonitor ? <SystemLogs /> : <Navigate to="/tickets" replace />} />
           <Route path="/monitoring" element={<Navigate to="/manager/dashboard" replace />} />
           <Route path="/users" element={currentUser.role === "MANAGER" ? <Navigate to="/tickets" replace /> : <LocalUsers user={currentUser} onCredentialsChanged={() => {
             setCurrentUser(null);
             setAuthState("unauthenticated");
           }} />} />
+          <Route path="/users/cpanel" element={currentUser.role === "SUPER_ADMIN" ? <CpanelUsers user={currentUser} /> : <Navigate to="/tickets" replace />} />
           <Route path="/logs" element={canMonitor ? <Navigate to="/manager/logs" replace /> : <Navigate to="/tickets" replace />} />
           <Route path="/devices/branch-rules" element={currentUser.role === "SUPER_ADMIN" ? <BranchPatternSettings /> : <Navigate to="/devices" replace />} />
           <Route path="/devices" element={isAdmin ? <DeviceList user={currentUser} /> : <Navigate to="/tickets" replace />} />
@@ -140,11 +141,12 @@ export default function App() {
           <Route path="/onboarding" element={isAdmin ? <OnboardingWizard /> : <Navigate to="/tickets" replace />} />
           <Route
             path="/settings"
-            element={<Settings onCredentialsChanged={() => setAuthState("unauthenticated")} />}
+            element={<Settings user={currentUser} onCredentialsChanged={() => setAuthState("unauthenticated")} />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
+          </Routes>
+        </main>
+      </div>
     </div>
   );
 }

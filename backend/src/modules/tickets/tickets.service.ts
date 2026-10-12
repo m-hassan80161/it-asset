@@ -48,6 +48,38 @@ export class TicketsService {
     if (Boolean(dto.remoteSupportType) !== Boolean(dto.remoteSupportId?.trim())) {
       throw new BadRequestException("Choose a remote support type and provide its ID together");
     }
+    let requester = actor;
+    if (dto.requesterId || dto.requesterEmail) {
+      if (actor.role !== UserRole.EMPLOYEE || dto.requesterId === actor.id) {
+        throw new ForbiddenException("Only employees may submit a ticket for a colleague");
+      }
+      if (dto.requesterId && dto.requesterEmail) {
+        throw new BadRequestException("Provide either a colleague ID or email, not both");
+      }
+      const colleague = await this.prisma.adminAccount.findFirst({
+        where: {
+          ...(dto.requesterId
+            ? { id: dto.requesterId }
+            : { username: { equals: dto.requesterEmail?.trim(), mode: "insensitive" } }),
+          role: UserRole.EMPLOYEE,
+          isActive: true,
+          branch,
+        },
+        select: { id: true, username: true, fullName: true },
+      });
+      if (!colleague) {
+        throw new BadRequestException("Choose an active colleague from your assigned branch");
+      }
+      if (colleague.id === actor.id) {
+        throw new BadRequestException("Enter a colleague's email, not your own");
+      }
+      requester = {
+        ...actor,
+        id: colleague.id,
+        username: colleague.username,
+        fullName: colleague.fullName,
+      };
+    }
     const manager = await this.prisma.adminAccount.findFirst({
       where: { role: UserRole.MANAGER, isActive: true, managedBranches: { has: branch } },
       select: { id: true },
@@ -58,9 +90,9 @@ export class TicketsService {
         description: dto.description.trim(),
         category: dto.category,
         priority: dto.priority,
-        requesterId: actor.id,
-        requesterUsername: actor.username,
-        requesterName: actor.fullName,
+        requesterId: requester.id,
+        requesterUsername: requester.username,
+        requesterName: requester.fullName,
         branch,
         departmentId: dto.departmentId?.trim(),
         remoteSupportType: dto.remoteSupportType,
@@ -192,9 +224,29 @@ export class TicketsService {
         resolvedAt:
           dto.status === TicketStatus.RESOLVED
             ? new Date()
-            : dto.status
+            : dto.status === TicketStatus.CLOSED
+              ? ticket.resolvedAt ?? new Date()
+              : dto.status
               ? null
               : undefined,
+        resolvedById:
+          dto.status === TicketStatus.RESOLVED
+            ? actor.role === UserRole.ADMIN ||
+              actor.role === UserRole.MANAGER ||
+              actor.role === UserRole.SUPER_ADMIN
+              ? actor.id
+              : null
+            : dto.status === TicketStatus.CLOSED
+              ? ticket.resolvedById ?? (
+                  actor.role === UserRole.ADMIN ||
+                  actor.role === UserRole.MANAGER ||
+                  actor.role === UserRole.SUPER_ADMIN
+                    ? actor.id
+                    : null
+                )
+              : dto.status
+                ? null
+                : undefined,
       },
       include: ticketInclude,
     });
@@ -219,7 +271,17 @@ export class TicketsService {
     }
     const closed = await this.prisma.ticket.update({
       where: { id: ticketId },
-      data: { status: TicketStatus.CLOSED },
+      data: {
+        status: TicketStatus.CLOSED,
+        resolvedAt: ticket.resolvedAt ?? new Date(),
+        resolvedById:
+          ticket.resolvedById ??
+          (actor.role === UserRole.ADMIN ||
+          actor.role === UserRole.MANAGER ||
+          actor.role === UserRole.SUPER_ADMIN
+            ? actor.id
+            : null),
+      },
       include: ticketInclude,
     });
     await this.recordOperation(actor, "Ticket closed", { ticketId });
@@ -542,27 +604,110 @@ export class TicketsService {
           orderBy: [{ branch: "asc" }, { fullName: "asc" }],
         }),
         this.prisma.ticket.findMany({
-          where: { ...where, resolvedAt: { not: null } },
-          select: { createdAt: true, resolvedAt: true, assignedAdminId: true },
+          where: {
+            ...where,
+            status: { in: [TicketStatus.RESOLVED, TicketStatus.CLOSED] },
+          },
+          select: {
+            id: true,
+            branch: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            resolvedAt: true,
+            resolvedById: true,
+            assignedAdminId: true,
+          },
         }),
       ]);
+    const activeAdminIds = new Set(admins.map((admin) => admin.id));
+    const ticketsNeedingResolutionOwner = solvedTickets.filter(
+      (ticket) =>
+        !activeAdminIds.has(ticket.resolvedById ?? "") &&
+        !activeAdminIds.has(ticket.assignedAdminId ?? ""),
+    );
+    const ticketIdsNeedingResolutionOwner = new Set(
+      ticketsNeedingResolutionOwner.map((ticket) => ticket.id),
+    );
+    const resolutionAuditLogs = ticketIdsNeedingResolutionOwner.size && admins.length
+      ? await this.prisma.applicationLog.findMany({
+          where: {
+            userId: { in: admins.map((admin) => admin.id) },
+            message: "Ticket updated",
+            OR: [...ticketIdsNeedingResolutionOwner].map((ticketId) => ({
+              details: { path: ["ticketId"], equals: ticketId },
+            })),
+          },
+          select: { userId: true, details: true, timestamp: true },
+          orderBy: { timestamp: "desc" },
+        })
+      : [];
+    const auditAuthorByTicket = new Map<string, string>();
+    for (const log of resolutionAuditLogs) {
+      if (
+        !log.userId ||
+        !log.details ||
+        typeof log.details !== "object" ||
+        Array.isArray(log.details)
+      ) continue;
+      const details = log.details as Record<string, unknown>;
+      const ticketId = details.ticketId;
+      const status = details.status;
+      if (
+        typeof ticketId === "string" &&
+        ticketIdsNeedingResolutionOwner.has(ticketId) &&
+        (status === TicketStatus.RESOLVED || status === TicketStatus.CLOSED) &&
+        !auditAuthorByTicket.has(ticketId)
+      ) {
+        auditAuthorByTicket.set(ticketId, log.userId);
+      }
+    }
+    const resolutionComments = ticketsNeedingResolutionOwner.length && admins.length
+      ? await this.prisma.ticketComment.findMany({
+          where: {
+            ticketId: { in: ticketsNeedingResolutionOwner.map((ticket) => ticket.id) },
+            authorId: { in: admins.map((admin) => admin.id) },
+          },
+          select: { ticketId: true, authorId: true, createdAt: true },
+          orderBy: { createdAt: "desc" },
+        })
+      : [];
+    const commentAuthorByTicket = new Map<string, string>();
+    for (const comment of resolutionComments) {
+      if (comment.authorId && !commentAuthorByTicket.has(comment.ticketId)) {
+        commentAuthorByTicket.set(comment.ticketId, comment.authorId);
+      }
+    }
+    const adminsByBranch = new Map<string, typeof admins>();
+    for (const admin of admins) {
+      if (!admin.branch) continue;
+      adminsByBranch.set(admin.branch, [...(adminsByBranch.get(admin.branch) ?? []), admin]);
+    }
+    const resolutionMinutes = (ticket: (typeof solvedTickets)[number]) =>
+      Math.max(0, ((ticket.resolvedAt ?? ticket.updatedAt).getTime() - ticket.createdAt.getTime()) / 60000);
     const averageResolutionMinutes = solvedTickets.length
       ? Math.round(
-          solvedTickets.reduce(
-            (sum, ticket) => sum + (ticket.resolvedAt!.getTime() - ticket.createdAt.getTime()) / 60000,
-            0,
-          ) / solvedTickets.length,
+          solvedTickets.reduce((sum, ticket) => sum + resolutionMinutes(ticket), 0) /
+            solvedTickets.length,
         )
       : null;
     const adminPerformance = admins.map((admin) => {
       const resolvedForAdmin = solvedTickets.filter(
-        (ticket) => ticket.assignedAdminId === admin.id,
+        (ticket) => {
+          const recordedOwnerId = ticket.resolvedById ?? ticket.assignedAdminId;
+          const ownerId = recordedOwnerId && activeAdminIds.has(recordedOwnerId)
+            ? recordedOwnerId
+            : auditAuthorByTicket.get(ticket.id) ??
+              commentAuthorByTicket.get(ticket.id);
+          if (ownerId) return ownerId === admin.id;
+          const branchAdmins = adminsByBranch.get(ticket.branch) ?? [];
+          return branchAdmins.length === 1 && branchAdmins[0].id === admin.id;
+        },
       );
       const averageResolutionMinutes = resolvedForAdmin.length
         ? Math.round(
             resolvedForAdmin.reduce(
-              (sum, ticket) =>
-                sum + (ticket.resolvedAt!.getTime() - ticket.createdAt.getTime()) / 60000,
+              (sum, ticket) => sum + resolutionMinutes(ticket),
               0,
             ) / resolvedForAdmin.length,
           )

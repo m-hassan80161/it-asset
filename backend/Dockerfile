@@ -1,7 +1,10 @@
-FROM node:20-slim AS base
+FROM node AS base
+
 WORKDIR /app
 
-# 1. تثبيت الحزم البرمجية التي تحتاجه بعض المكتبات (مثل ldap / winrm / prisma)
+ENV NODE_ENV=development
+
+# 1. تثبيت الحزم البرمجية التي تحتاجها بعض المكتبات (مثل ldap / winrm / prisma)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
@@ -10,9 +13,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. نسخ ملفات التعريف وتثبيت الـ dependencies
+# 2. نسخ ملفات التعريف وتثبيت الـ dependencies مع devDependencies
 COPY package*.json ./
-RUN npm install
+RUN npm install --include=dev
 
 # 3. نسخ مجلد Prisma وتوليد الـ Client
 COPY prisma ./prisma/

@@ -22,6 +22,7 @@ import { Roles } from "../auth/roles.decorator";
 import { RolesGuard } from "../auth/roles.guard";
 import { AuthenticatedUser } from "../auth/authenticated-user";
 import { BranchPatternDto } from "./dto/branch-pattern.dto";
+import { CreateBranchDto } from "./dto/create-branch.dto";
 
 interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
@@ -70,6 +71,24 @@ export class InventoryController {
   @Roles(UserRole.SUPER_ADMIN)
   listBranchPatterns() {
     return this.inventoryService.listBranchPatterns();
+  }
+
+  @Get("branches")
+  @Roles(UserRole.SUPER_ADMIN)
+  listBranches() {
+    return this.inventoryService.listBranches();
+  }
+
+  @Post("branches")
+  @Roles(UserRole.SUPER_ADMIN)
+  createBranch(@Body() dto: CreateBranchDto) {
+    return this.inventoryService.createBranch(dto.name);
+  }
+
+  @Delete("branches/:name")
+  @Roles(UserRole.SUPER_ADMIN)
+  deleteBranch(@Param("name") name: string) {
+    return this.inventoryService.deleteBranch(name);
   }
 
   @Post("branch-patterns")

@@ -42,6 +42,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
   const [error, setError] = useState("");
   const [newOpenTickets, setNewOpenTickets] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showTickets, setShowTickets] = useState(true);
   const previousOpen = useRef<number | null>(null);
 
   const loadData = useCallback(async () => {
@@ -123,6 +124,14 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
       <header>
         <h1 className="text-3xl font-bold">إدارة تيكتس الفرع</h1>
         <p className="mt-2 text-slate-600">الفرع: {dashboard.branch ?? user.branch ?? "كل الفروع"}</p>
+        <button
+          type="button"
+          aria-expanded={showTickets}
+          onClick={() => setShowTickets((visible) => !visible)}
+          className="mt-3 rounded border px-4 py-2 hover:bg-slate-50"
+        >
+          {showTickets ? "إخفاء التيكتس المعروضة" : "عرض التيكتس"}
+        </button>
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
       {newOpenTickets > 0 && (
@@ -158,6 +167,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
           ))}
         </section>
       )}
+      {showTickets && <>
       <div className="grid gap-3 rounded-lg bg-white p-4 shadow sm:grid-cols-2 lg:grid-cols-5">
         <select aria-label="تصفية الحالة" value={status} onChange={(event) => { setSkip(0); setStatus(event.target.value as TicketStatus | ""); }} className="rounded border px-3 py-2">
           <option value="">كل الحالات</option>
@@ -224,6 +234,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
           ))}
         </div>
       )}
+      </>}
     </section>
   );
 }

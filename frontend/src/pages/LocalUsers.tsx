@@ -23,6 +23,7 @@ interface LocalUsersProps {
 export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("EMPLOYEE");
@@ -30,6 +31,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
   const [managedBranches, setManagedBranches] = useState("");
   const [editing, setEditing] = useState<ManagedUser | null>(null);
   const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
   const [editUsername, setEditUsername] = useState("");
   const [editPassword, setEditPassword] = useState("");
   const [editRole, setEditRole] = useState<UserRole>("EMPLOYEE");
@@ -52,6 +54,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
     !query ||
     account.fullName.toLocaleLowerCase().includes(query) ||
     account.username.toLocaleLowerCase().includes(query) ||
+    (account.phone ?? "").toLocaleLowerCase().includes(query) ||
     account.role.toLocaleLowerCase().includes(query) ||
     (account.branch ?? "").toLocaleLowerCase().includes(query) ||
     account.managedBranches.some((value) => value.toLocaleLowerCase().includes(query)),
@@ -95,6 +98,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
     setNotice("");
     const input: CreateLocalUserInput = {
       fullName,
+      ...(phone.trim() ? { phone: phone.trim() } : {}),
       username,
       password,
       role,
@@ -106,6 +110,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
     try {
       await authApi.createUser(input);
       setFullName("");
+      setPhone("");
       setUsername("");
       setPassword("");
       setBranch("");
@@ -122,6 +127,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
   const beginEdit = (account: ManagedUser) => {
     setEditing(account);
     setEditName(account.fullName);
+    setEditPhone(account.phone ?? "");
     setEditUsername(account.username);
     setEditPassword("");
     setEditRole(account.role);
@@ -140,6 +146,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
     setNotice("");
     const payload: UpdateLocalUserInput = {
       fullName: editName.trim(),
+      phone: editPhone.trim() || null,
       username: editUsername.trim(),
       ...(editPassword ? { password: editPassword } : {}),
       ...(isSuperAdmin
@@ -223,6 +230,9 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
           <label className="text-sm font-medium">الاسم الكامل
             <input required maxLength={120} value={fullName} onChange={(event) => setFullName(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
+          <label className="text-sm font-medium">رقم الهاتف (اختياري)
+            <input type="tel" inputMode="tel" maxLength={32} value={phone} onChange={(event) => setPhone(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+          </label>
           <label className="text-sm font-medium">اسم المستخدم
             <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={username} onChange={(event) => setUsername(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
@@ -275,6 +285,9 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
           <h2 id="edit-account-title" className="text-xl font-semibold md:col-span-2">تعديل حساب {editing.fullName}</h2>
           <label className="text-sm font-medium">الاسم الكامل
             <input required maxLength={120} value={editName} onChange={(event) => setEditName(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
+          </label>
+          <label className="text-sm font-medium">رقم الهاتف (اختياري)
+            <input type="tel" inputMode="tel" maxLength={32} value={editPhone} onChange={(event) => setEditPhone(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
           <label className="text-sm font-medium">اسم المستخدم
             <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={editUsername} onChange={(event) => setEditUsername(event.target.value)} disabled={editing.authProvider === "CPANEL"} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-slate-100" />
@@ -343,19 +356,20 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="ابحث بالاسم أو البريد أو الدور أو الفرع"
+            placeholder="ابحث بالاسم أو البريد أو الهاتف أو الدور أو الفرع"
             aria-label="البحث في الحسابات"
             className="w-full rounded border px-3 py-2 sm:max-w-md"
           />
         </div>
         {loading ? <p className="p-5">جارٍ تحميل الحسابات...</p> : (
           <table className="w-full text-left text-sm">
-            <thead className="bg-slate-100"><tr><th className="p-3">الاسم</th><th className="p-3">المستخدم</th><th className="p-3">الدور</th><th className="p-3">النطاق</th><th className="p-3">الحالة</th><th className="p-3">إجراءات</th></tr></thead>
+            <thead className="bg-slate-100"><tr><th className="p-3">الاسم</th><th className="p-3">المستخدم</th><th className="p-3">الهاتف</th><th className="p-3">الدور</th><th className="p-3">النطاق</th><th className="p-3">الحالة</th><th className="p-3">إجراءات</th></tr></thead>
             <tbody className="divide-y">
               {displayedUsers.map((account) => (
                 <tr key={account.id} className={!account.isActive ? "bg-slate-50 text-slate-500" : ""}>
                   <td className="p-3">{account.fullName}</td>
                   <td className="p-3">{account.username}</td>
+                  <td className="p-3" dir="ltr">{account.phone ?? "—"}</td>
                   <td className="p-3">{account.role}</td>
                   <td className="p-3">{account.branch ?? (account.managedBranches.join(", ") || "—")}</td>
                   <td className="p-3">
@@ -371,7 +385,7 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
                   </td>
                 </tr>
               ))}
-              {!filteredUsers.length && <tr><td colSpan={6} className="p-6 text-center text-slate-500">{users.length ? "لا توجد حسابات مطابقة للبحث." : "لا توجد حسابات ضمن صلاحيتك."}</td></tr>}
+              {!filteredUsers.length && <tr><td colSpan={7} className="p-6 text-center text-slate-500">{users.length ? "لا توجد حسابات مطابقة للبحث." : "لا توجد حسابات ضمن صلاحيتك."}</td></tr>}
             </tbody>
           </table>
         )}

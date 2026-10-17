@@ -93,6 +93,7 @@ export class TicketsService {
         requesterId: requester.id,
         requesterUsername: requester.username,
         requesterName: requester.fullName,
+        requesterPhone: dto.requesterPhone?.trim() || actor.phone,
         branch,
         departmentId: dto.departmentId?.trim(),
         remoteSupportType: dto.remoteSupportType,
@@ -211,6 +212,12 @@ export class TicketsService {
       this.assertCanManageTicket(actor, ticket);
     }
 
+    const statusChangedAt =
+      dto.status && dto.status !== ticket.status ? new Date() : undefined;
+    const leavingWaitingUser =
+      dto.status !== undefined &&
+      ticket.status === TicketStatus.WAITING_USER &&
+      dto.status !== TicketStatus.WAITING_USER;
     const updated = await this.prisma.ticket.update({
       where: { id: ticketId },
       data: {
@@ -221,6 +228,24 @@ export class TicketsService {
         remoteSupportId: dto.remoteSupportId?.trim(),
         priority: dto.priority,
         status: dto.status,
+        closedAt:
+          dto.status === TicketStatus.CLOSED
+            ? ticket.closedAt ?? statusChangedAt
+            : dto.status
+              ? null
+              : undefined,
+        waitingUserStartedAt:
+          dto.status === TicketStatus.WAITING_USER &&
+          ticket.status !== TicketStatus.WAITING_USER
+            ? statusChangedAt
+            : leavingWaitingUser
+              ? null
+              : undefined,
+        waitingUserDurationMs:
+          leavingWaitingUser && ticket.waitingUserStartedAt
+            ? ticket.waitingUserDurationMs +
+              Math.max(0, Date.now() - ticket.waitingUserStartedAt.getTime())
+            : undefined,
         resolvedAt:
           dto.status === TicketStatus.RESOLVED
             ? new Date()
@@ -269,10 +294,19 @@ export class TicketsService {
     if (actor.role !== UserRole.EMPLOYEE) {
       this.assertCanManageTicket(actor, ticket);
     }
+    const closedAt = new Date();
     const closed = await this.prisma.ticket.update({
       where: { id: ticketId },
       data: {
         status: TicketStatus.CLOSED,
+        closedAt: ticket.closedAt ?? closedAt,
+        waitingUserDurationMs:
+          ticket.status === TicketStatus.WAITING_USER && ticket.waitingUserStartedAt
+            ? ticket.waitingUserDurationMs +
+              Math.max(0, closedAt.getTime() - ticket.waitingUserStartedAt.getTime())
+            : undefined,
+        waitingUserStartedAt:
+          ticket.status === TicketStatus.WAITING_USER ? null : undefined,
         resolvedAt: ticket.resolvedAt ?? new Date(),
         resolvedById:
           ticket.resolvedById ??
@@ -327,6 +361,7 @@ export class TicketsService {
         assignedAdminId: assignee.id,
         assignedAdminName: assignee.fullName,
         assignedAdminUsername: assignee.username,
+        assignedAt: ticket.assignedAt ?? new Date(),
         status: ticket.status === TicketStatus.OPEN ? TicketStatus.IN_PROGRESS : undefined,
       },
       include: ticketInclude,
@@ -460,6 +495,7 @@ export class TicketsService {
             assignedAdminId: actor.id,
             assignedAdminName: actor.fullName,
             assignedAdminUsername: actor.username,
+            assignedAt: transfer.ticket.assignedAt ?? new Date(),
             status:
               transfer.ticket.status === TicketStatus.OPEN
                 ? TicketStatus.IN_PROGRESS
@@ -801,7 +837,13 @@ export class TicketsService {
         : {}),
     };
     return {
-      AND: [scope, filters],
+      AND: [
+        scope,
+        filters,
+        ...(query.closed === undefined
+          ? []
+          : [{ status: query.closed ? TicketStatus.CLOSED : { not: TicketStatus.CLOSED } }]),
+      ],
     };
   }
 

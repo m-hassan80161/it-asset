@@ -1,5 +1,5 @@
 import { RemoteSupportType, TicketCategory, TicketPriority } from "@prisma/client";
-import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from "class-validator";
 
 export class CreateTicketDto {
   @IsString()
@@ -38,6 +38,12 @@ export class CreateTicketDto {
   @IsEmail()
   @MaxLength(254)
   requesterEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[+0-9().\-\s]{7,32}$/)
+  @MaxLength(32)
+  requesterPhone?: string;
 
   @IsOptional()
   @IsEnum(RemoteSupportType)

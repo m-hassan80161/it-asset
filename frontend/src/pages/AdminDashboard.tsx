@@ -43,6 +43,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
   const [newOpenTickets, setNewOpenTickets] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showTickets, setShowTickets] = useState(true);
+  const [closedOnly, setClosedOnly] = useState(false);
   const previousOpen = useRef<number | null>(null);
 
   const loadData = useCallback(async () => {
@@ -51,6 +52,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
       status: status || undefined,
       priority: priority || undefined,
       category: category || undefined,
+      closed: closedOnly,
       sortBy,
       sortOrder,
       skip,
@@ -80,7 +82,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
     } finally {
       setLoading(false);
     }
-  }, [category, priority, skip, sortBy, sortOrder, status, user.branch, user.role]);
+  }, [category, closedOnly, priority, skip, sortBy, sortOrder, status, user.branch, user.role]);
 
   useEffect(() => {
     void loadData();
@@ -168,10 +170,24 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
         </section>
       )}
       {showTickets && <>
+      <div className="flex gap-2" role="tablist" aria-label="تقسيم التيكتس">
+        <button
+          role="tab"
+          aria-selected={!closedOnly}
+          onClick={() => { setClosedOnly(false); setStatus(""); setSkip(0); }}
+          className={`rounded px-4 py-2 ${!closedOnly ? "bg-blue-700 text-white" : "border bg-white"}`}
+        >التيكتس الفعالة</button>
+        <button
+          role="tab"
+          aria-selected={closedOnly}
+          onClick={() => { setClosedOnly(true); setStatus(""); setSkip(0); }}
+          className={`rounded px-4 py-2 ${closedOnly ? "bg-slate-700 text-white" : "border bg-white"}`}
+        >الأرشيف · المغلقة</button>
+      </div>
       <div className="grid gap-3 rounded-lg bg-white p-4 shadow sm:grid-cols-2 lg:grid-cols-5">
-        <select aria-label="تصفية الحالة" value={status} onChange={(event) => { setSkip(0); setStatus(event.target.value as TicketStatus | ""); }} className="rounded border px-3 py-2">
-          <option value="">كل الحالات</option>
-          {statuses.map((value) => <option key={value}>{value}</option>)}
+        <select aria-label="تصفية الحالة" disabled={closedOnly} value={status} onChange={(event) => { setSkip(0); setStatus(event.target.value as TicketStatus | ""); }} className="rounded border px-3 py-2 disabled:bg-slate-100">
+          <option value="">{closedOnly ? "الأرشيف: مغلقة" : "كل الحالات"}</option>
+          {statuses.filter((value) => value !== "CLOSED").map((value) => <option key={value}>{value}</option>)}
         </select>
         <select aria-label="تصفية الأولوية" value={priority} onChange={(event) => { setSkip(0); setPriority(event.target.value as TicketPriority | ""); }} className="rounded border px-3 py-2">
           <option value="">كل الأولويات</option>
@@ -191,7 +207,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
         </select>
       </div>
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">تيكتس الفرع ({total})</h2>
+        <h2 className="text-xl font-semibold">{closedOnly ? "أرشيف التيكتس المغلقة" : "تيكتس الفرع"} ({total})</h2>
         <div className="flex gap-2">
           <button disabled={!skip} onClick={() => setSkip(Math.max(0, skip - 25))} className="rounded border px-3 py-1 disabled:opacity-50">السابق</button>
           <button disabled={skip + tickets.length >= total} onClick={() => setSkip(skip + 25)} className="rounded border px-3 py-1 disabled:opacity-50">التالي</button>

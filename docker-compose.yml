@@ -52,9 +52,8 @@ services:
       - backend
     ports:
       - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+    environment:
+      API_PROXY_TARGET: http://backend:3000
     networks:
       - itam_net
 

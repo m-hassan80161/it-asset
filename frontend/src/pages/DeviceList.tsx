@@ -1,22 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AppUser, BranchPattern, ExportDevice, inventoryApi } from "../lib/api";
+import { AppUser, BranchPattern, ExportDevice, InventoryListItem, inventoryApi } from "../lib/api";
 import { ChevronRight, Download, Search, Trash2 } from "lucide-react";
 
 interface DeviceListProps {
   user: AppUser;
-}
-
-interface Device {
-  id: string;
-  computerName: string;
-  loggedInUser?: string;
-  osName?: string;
-  osVersion?: string;
-  lastSeenAt: string;
-  branch?: string | null;
-  software?: Array<{ id: string; name: string; version: string }>;
-  installedSoftware?: Array<{ id: string; name: string; version: string }>;
 }
 
 function csvCell(value: string | number | null | undefined) {
@@ -69,17 +57,20 @@ function exportDevicesCsv(devices: ExportDevice[]) {
 
 export function DeviceList({ user }: DeviceListProps) {
   const navigate = useNavigate();
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [devices, setDevices] = useState<InventoryListItem[]>([]);
+  const [totalDevices, setTotalDevices] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [skip, setSkip] = useState(0);
   const [softwareName, setSoftwareName] = useState("");
+  const [computerName, setComputerName] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [branchPatterns, setBranchPatterns] = useState<BranchPattern[]>([]);
   const [selectedBranch, setSelectedBranch] = useState(user.role === "ADMIN" ? user.branch ?? "" : "");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
   const canChooseExportBranch = user.role === "SUPER_ADMIN";
+  const canChooseDeviceBranch = user.role === "SUPER_ADMIN";
   const branchNames = [...new Set(branchPatterns.map((rule) => rule.branch))].sort();
   const take = 20;
   const normalizedSoftwareName = softwareName.trim().toLocaleLowerCase();
@@ -91,8 +82,11 @@ export function DeviceList({ user }: DeviceListProps) {
       try {
         setLoading(true);
         setError("");
-        const res = await inventoryApi.list(skip, take, softwareName);
-        if (active) setDevices(res.data);
+        const { data } = await inventoryApi.list(skip, take, softwareName, computerName, selectedBranch);
+        if (active) {
+          setDevices(data.data);
+          setTotalDevices(data.total);
+        }
       } catch (err) {
         if (active) {
           setError(err instanceof Error ? err.message : "Failed to load devices");
@@ -106,7 +100,7 @@ export function DeviceList({ user }: DeviceListProps) {
     return () => {
       active = false;
     };
-  }, [skip, softwareName]);
+  }, [skip, softwareName, computerName, selectedBranch]);
 
   useEffect(() => {
     if (!canChooseExportBranch) return;
@@ -128,7 +122,7 @@ export function DeviceList({ user }: DeviceListProps) {
     }
   };
 
-  const deleteDevice = async (device: Device) => {
+  const deleteDevice = async (device: InventoryListItem) => {
     if (!window.confirm(`Delete device "${device.computerName}" and its inventory?`)) {
       return;
     }
@@ -139,6 +133,7 @@ export function DeviceList({ user }: DeviceListProps) {
       await inventoryApi.remove(device.id);
       const remainingDevices = devices.filter((item) => item.id !== device.id);
       setDevices(remainingDevices);
+      setTotalDevices((total) => Math.max(0, total - 1));
       if (remainingDevices.length === 0 && skip > 0) {
         setSkip(Math.max(0, skip - take));
       }
@@ -175,8 +170,23 @@ export function DeviceList({ user }: DeviceListProps) {
         <p className="w-full text-xs text-slate-500">التصدير يحتوي المواصفات والرام والتخزين والشاشات المرتبطة فقط، دون قائمة البرامج.</p>
       </section>
 
-      <label className="relative mb-4 block max-w-md">
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+      <label className="relative block min-w-64 max-w-md flex-1">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="search"
+          value={computerName}
+          onChange={(event) => {
+            setComputerName(event.target.value);
+            setSkip(0);
+          }}
+          placeholder="ابحث باسم الجهاز..."
+          aria-label="البحث باسم الجهاز"
+          className="w-full rounded border border-slate-300 bg-white py-2 pl-9 pr-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+        />
+      </label>
+      <label className="block min-w-64 max-w-md flex-1">
+        <span className="mb-1 block text-sm font-medium">البحث باسم البرنامج</span>
         <input
           type="search"
           value={softwareName}
@@ -184,10 +194,20 @@ export function DeviceList({ user }: DeviceListProps) {
             setSoftwareName(event.target.value);
             setSkip(0);
           }}
-          placeholder="Find devices with software..."
-          className="w-full rounded border border-slate-300 bg-white py-2 pl-9 pr-3 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          placeholder="ابحث عن برنامج لمقارنة وجوده على الأجهزة..."
+          className="w-full rounded border border-slate-300 bg-white px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
         />
       </label>
+      <label className="block min-w-48 text-sm font-medium">
+        فرع الأجهزة
+        {canChooseDeviceBranch ? (
+          <select value={selectedBranch} onChange={(event) => { setSelectedBranch(event.target.value); setSkip(0); }} className="mt-1 block w-full rounded border bg-white px-3 py-2">
+            <option value="">كل الفروع</option>
+            {branchNames.map((branch) => <option key={branch}>{branch}</option>)}
+          </select>
+        ) : <span className="mt-1 block rounded border bg-slate-50 px-3 py-2">{user.branch ?? "لم يتم تعيين فرع"}</span>}
+      </label>
+      </div>
 
       <div className="bg-white rounded shadow overflow-hidden">
         <table className="w-full">
@@ -203,7 +223,12 @@ export function DeviceList({ user }: DeviceListProps) {
             </tr>
           </thead>
           <tbody>
-            {devices.map((device) => (
+            {devices.map((device) => {
+              const matchingSoftware = (device.installedSoftware ?? device.software ?? [])
+                .filter((item) =>
+                  item.name.toLocaleLowerCase().includes(normalizedSoftwareName),
+                );
+              return (
               <tr key={device.id} className="border-b hover:bg-slate-50 transition">
                 <td className="px-6 py-4 font-medium">{device.computerName}</td>
                 <td className="px-6 py-4 text-sm">{device.branch ?? "غير محدد"}</td>
@@ -215,16 +240,14 @@ export function DeviceList({ user }: DeviceListProps) {
                 </td>
                 <td className="px-6 py-4 text-sm">
                   {normalizedSoftwareName
-                    ? (device.installedSoftware ?? device.software ?? [])
-                        .filter((item) =>
-                          item.name.toLocaleLowerCase().includes(normalizedSoftwareName),
-                        )
-                        .map((item) => (
+                    ? matchingSoftware.length
+                      ? matchingSoftware.map((item) => (
                           <div key={item.id} className="whitespace-nowrap">
                             <span className="font-medium">{item.name}</span>
                             <span className="ml-2 text-slate-600">{item.version}</span>
                           </div>
                         ))
+                      : <span className="font-medium text-amber-700">غير مثبت على هذا الجهاز</span>
                     : <span className="text-slate-400">Search for a program to compare versions</span>}
                 </td>
                 <td className="px-6 py-4 text-sm text-slate-500">
@@ -251,7 +274,8 @@ export function DeviceList({ user }: DeviceListProps) {
                   </div>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {loading && devices.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
@@ -262,8 +286,8 @@ export function DeviceList({ user }: DeviceListProps) {
             {!loading && devices.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
-                  {softwareName
-                    ? `No devices found with software matching "${softwareName}".`
+                  {computerName || softwareName
+                    ? "لا توجد أجهزة مطابقة لخيارات البحث."
                     : "No devices found."}
                 </td>
               </tr>
@@ -284,13 +308,11 @@ export function DeviceList({ user }: DeviceListProps) {
         <span className="px-4 py-2 text-slate-600">
           {loading && devices.length === 0
             ? "Loading..."
-            : devices.length
-              ? `Showing ${skip + 1} to ${skip + devices.length}`
-              : "0 devices"}
+            : `Showing ${totalDevices === 0 ? 0 : skip + 1} to ${skip + devices.length} of ${totalDevices} devices · Page ${totalDevices === 0 ? 0 : Math.floor(skip / take) + 1} of ${Math.ceil(totalDevices / take)}`}
         </span>
         <button
           onClick={() => setSkip(skip + take)}
-          disabled={loading || devices.length < take}
+          disabled={loading || skip + devices.length >= totalDevices}
           className="px-4 py-2 bg-blue-600 text-white rounded disabled:bg-slate-300"
         >
           Next

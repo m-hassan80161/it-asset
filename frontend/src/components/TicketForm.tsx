@@ -6,6 +6,7 @@ interface TicketFormProps {
   branch?: string;
   showBranch?: boolean;
   branches?: string[];
+  requesterPhone?: string;
   onCreated: () => Promise<void>;
 }
 
@@ -13,11 +14,12 @@ const categories: TicketCategory[] = ["HARDWARE", "SOFTWARE", "NETWORK", "PRINTE
 const priorities: TicketPriority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const allowedTypes = ["application/pdf", "image/png", "image/jpeg"];
 
-export function TicketForm({ branch: initialBranch = "", showBranch, branches, onCreated }: TicketFormProps) {
+export function TicketForm({ branch: initialBranch = "", requesterPhone: initialRequesterPhone = "", showBranch, branches, onCreated }: TicketFormProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<TicketCategory>("HARDWARE");
   const [requesterEmail, setRequesterEmail] = useState("");
+  const [requesterPhone, setRequesterPhone] = useState(initialRequesterPhone);
   const [printerName, setPrinterName] = useState("");
   const [printerModel, setPrinterModel] = useState("");
   const [priority, setPriority] = useState<TicketPriority>("MEDIUM");
@@ -50,6 +52,7 @@ export function TicketForm({ branch: initialBranch = "", showBranch, branches, o
         category,
         priority,
         ...(requesterEmail.trim() ? { requesterEmail: requesterEmail.trim() } : {}),
+        ...(requesterPhone.trim() ? { requesterPhone: requesterPhone.trim() } : {}),
         ...(remoteSupportType ? { remoteSupportType } : {}),
         ...(remoteSupportId.trim() ? { remoteSupportId: remoteSupportId.trim() } : {}),
         ...(showBranch ? { branch } : {}),
@@ -68,6 +71,7 @@ export function TicketForm({ branch: initialBranch = "", showBranch, branches, o
       setPrinterName("");
       setPrinterModel("");
       setRequesterEmail("");
+      setRequesterPhone(initialRequesterPhone);
       setRemoteSupportType("");
       setRemoteSupportId("");
       setFile(null);
@@ -103,6 +107,18 @@ export function TicketForm({ branch: initialBranch = "", showBranch, branches, o
         <span className="mt-1 block text-xs font-normal text-slate-500">
           اترك الحقل فارغًا إذا كنت تقدم الطلب لنفسك. يجب أن يكون الزميل من فرعك.
         </span>
+      </label>
+      <label className="text-sm font-medium md:col-span-2">
+        رقم هاتف للتواصل
+        <input
+          type="tel"
+          inputMode="tel"
+          maxLength={32}
+          value={requesterPhone}
+          onChange={(event) => setRequesterPhone(event.target.value)}
+          className="mt-1 w-full rounded border px-3 py-2"
+          placeholder="أدخل رقم هاتفك للتواصل بخصوص الطلب"
+        />
       </label>
       <label className="text-sm font-medium">
         عنوان الطلب

@@ -48,11 +48,15 @@ export class InventoryController {
     @Query("skip") skip?: string,
     @Query("take") take?: string,
     @Query("softwareName") softwareName?: string,
+    @Query("computerName") computerName?: string,
+    @Query("branch") branch?: string,
   ) {
     return this.inventoryService.listDevices({
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
       softwareName,
+      computerName,
+      branch,
       role: request.user?.role,
       actorBranch: request.user?.branch,
     });

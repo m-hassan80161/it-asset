@@ -175,38 +175,89 @@ export class InventoryService {
       skip?: number;
       take?: number;
       softwareName?: string;
+      computerName?: string;
       branch?: string;
       role?: UserRole;
       actorBranch?: string | null;
     } = {},
   ) {
     const softwareName = params.softwareName?.trim();
+    const computerName = params.computerName?.trim();
+    const branch = params.role === UserRole.ADMIN ? params.actorBranch : params.branch;
+    if (params.role === UserRole.ADMIN && !branch) {
+      throw new BadRequestException("Admin account has no assigned branch");
+    }
     const rules = await this.prisma.branchPattern.findMany({
       orderBy: [{ pattern: "desc" }],
     });
-    const devices = await this.prisma.device.findMany({
-      skip: params.skip ?? 0,
-      take: params.take ?? 50,
-      orderBy: { lastSeenAt: "desc" },
-      where: softwareName
-        ? {
-            software: {
-              some: {
-                name: { contains: softwareName, mode: "insensitive" },
-              },
-            },
-          }
-        : undefined,
-      include: {
-        cpu: true,
-        disks: true,
-        software: true,
-      },
-    });
-    return devices.map((device) => ({
-      ...device,
-      branch: this.resolveBranch(device, rules),
-    }));
+    const filters: Prisma.DeviceWhereInput[] = [];
+    if (computerName) {
+      filters.push({ computerName: { contains: computerName, mode: "insensitive" } });
+    }
+    if (branch) {
+      const branchRules = rules.filter((rule) => rule.branch === branch);
+      const matchingRules: Prisma.DeviceWhereInput[] = [
+        ...branchRules
+          .filter((rule) => rule.source === BranchPatternSource.DOMAIN)
+          .map((rule) => ({ domain: { contains: rule.pattern, mode: "insensitive" as const } })),
+        ...branchRules
+          .filter((rule) => rule.source === BranchPatternSource.COMPUTER_NAME)
+          .map((rule) => ({
+            AND: [
+              { OR: [{ domain: null }, { domain: "" }] },
+              { computerName: { contains: rule.pattern, mode: "insensitive" as const } },
+            ],
+          })),
+      ];
+      if (!matchingRules.length) return { data: [], total: 0 };
+      filters.push({ OR: matchingRules });
+    }
+    const where = filters.length ? { AND: filters } : undefined;
+    const include = {
+      cpu: true,
+      disks: true,
+      software: softwareName
+        ? { where: { name: { contains: softwareName, mode: "insensitive" as const } } }
+        : true,
+    } satisfies Prisma.DeviceInclude;
+    const skip = params.skip ?? 0;
+    const take = params.take ?? 50;
+
+    if (branch) {
+      const devices = await this.prisma.device.findMany({
+        orderBy: { lastSeenAt: "desc" },
+        where,
+        include,
+      });
+      const matchedDevices = devices
+        .map((device) => ({
+          ...device,
+          branch: this.resolveBranch(device, rules),
+        }))
+        .filter((device) => device.branch === branch);
+      return {
+        data: matchedDevices.slice(skip, skip + take),
+        total: matchedDevices.length,
+      };
+    }
+
+    const [devices, total] = await Promise.all([
+      this.prisma.device.findMany({
+        skip,
+        take,
+        orderBy: { lastSeenAt: "desc" },
+        where,
+        include,
+      }),
+      this.prisma.device.count({ where }),
+    ]);
+    return {
+      data: devices.map((device) => ({
+        ...device,
+        branch: this.resolveBranch(device, rules),
+      })),
+      total,
+    };
   }
 
   async exportDevices(branch: string | undefined, role: UserRole, actorBranch: string | null) {

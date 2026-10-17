@@ -22,6 +22,11 @@ export class CreateLocalUserDto {
   @MaxLength(120)
   fullName: string;
 
+  @IsOptional()
+  @IsString()
+  @Matches(/^[+0-9().\-\s]{7,32}$/)
+  phone?: string;
+
   @IsString()
   @MinLength(12)
   @MaxLength(256)

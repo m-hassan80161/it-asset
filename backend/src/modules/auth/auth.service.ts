@@ -23,7 +23,7 @@ import { promisify } from "node:util";
 import { REMEMBERED_SESSION_DURATION_MS, SESSION_DURATION_MS } from "./auth.constants";
 import { UpdateSettingsDto } from "./dto/update-settings.dto";
 import { CreateLocalUserDto } from "./dto/create-local-user.dto";
-import { AuthProvider, CpanelAccountStatus, UserRole } from "@prisma/client";
+import { AuthProvider, CpanelAccountStatus, Prisma, UserRole } from "@prisma/client";
 import { AuthenticatedUser } from "./authenticated-user";
 import { UpdateAdminBranchDto } from "./dto/update-admin-branch.dto";
 import { LogsService } from "../logs/logs.service";
@@ -143,6 +143,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         id: true,
         username: true,
         fullName: true,
+        phone: true,
         role: true,
         authProvider: true,
         branch: true,
@@ -167,6 +168,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         id: true,
         username: true,
         fullName: true,
+        phone: true,
         role: true,
         authProvider: true,
         branch: true,
@@ -191,6 +193,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         id: randomUUID(),
         username: dto.username,
         fullName: dto.fullName,
+        phone: dto.phone === undefined ? undefined : dto.phone?.trim() || null,
         passwordHash: await this.hashPassword(dto.password),
         role: dto.role,
         branch: dto.branch?.trim(),
@@ -200,6 +203,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         id: true,
         username: true,
         fullName: true,
+        phone: true,
         role: true,
         branch: true,
         managedBranches: true,
@@ -280,6 +284,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
         data: {
           username,
           fullName: dto.fullName?.trim(),
+          phone: dto.phone === undefined ? undefined : dto.phone?.trim() || null,
           passwordHash,
           ...(actor.role === UserRole.SUPER_ADMIN
             ? {
@@ -295,6 +300,7 @@ export class AuthService implements OnModuleInit, OnModuleDestroy {
           id: true,
           username: true,
           fullName: true,
+          phone: true,
           role: true,
           branch: true,
           managedBranches: true,

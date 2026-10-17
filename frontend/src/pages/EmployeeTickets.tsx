@@ -13,6 +13,7 @@ interface EmployeeTicketsProps {
 export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [status, setStatus] = useState<TicketStatus | "">("");
+  const [closedOnly, setClosedOnly] = useState(false);
   const [showTickets, setShowTickets] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -20,14 +21,18 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
   const loadTickets = useCallback(async () => {
     setError("");
     try {
-      const { data } = await ticketsApi.list({ take: 100, status: status || undefined });
+      const { data } = await ticketsApi.list({
+        take: 100,
+        status: status || undefined,
+        closed: closedOnly,
+      });
       setTickets(data.data);
     } catch {
       setError("تعذر تحميل طلباتك.");
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [closedOnly, status]);
 
   useEffect(() => {
     void loadTickets();
@@ -39,7 +44,7 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
         <Link to="/tickets" className="text-blue-700 hover:underline">← العودة إلى طلباتي</Link>
         <h1 className="text-3xl font-bold">طلب دعم جديد</h1>
         {user.branch && <p className="text-slate-600">فرعك: <strong>{user.branch}</strong></p>}
-        <TicketForm branch={user.branch ?? ""} onCreated={loadTickets} />
+        <TicketForm branch={user.branch ?? ""} requesterPhone={user.phone ?? ""} onCreated={loadTickets} />
       </section>
     );
   }
@@ -65,11 +70,25 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
         </div>
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
+      <div className="flex gap-2" role="tablist" aria-label="تقسيم طلباتي">
+        <button
+          role="tab"
+          aria-selected={!closedOnly}
+          onClick={() => { setClosedOnly(false); setStatus(""); }}
+          className={`rounded px-4 py-2 ${!closedOnly ? "bg-blue-700 text-white" : "border bg-white"}`}
+        >الطلبات الفعالة</button>
+        <button
+          role="tab"
+          aria-selected={closedOnly}
+          onClick={() => { setClosedOnly(true); setStatus(""); }}
+          className={`rounded px-4 py-2 ${closedOnly ? "bg-slate-700 text-white" : "border bg-white"}`}
+        >الأرشيف · المغلقة</button>
+      </div>
       <label className="inline-flex items-center gap-2 text-sm">
         تصفية الحالة
-        <select value={status} onChange={(event) => setStatus(event.target.value as TicketStatus | "")} className="rounded border px-3 py-2">
-          <option value="">كل الحالات</option>
-          {["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"].map((value) => <option key={value}>{value}</option>)}
+        <select disabled={closedOnly} value={status} onChange={(event) => setStatus(event.target.value as TicketStatus | "")} className="rounded border px-3 py-2 disabled:bg-slate-100">
+          <option value="">{closedOnly ? "الأرشيف: مغلقة" : "كل الحالات"}</option>
+          {["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED"].map((value) => <option key={value}>{value}</option>)}
         </select>
       </label>
       {showTickets && (loading ? <p>جارٍ تحميل الطلبات...</p> : tickets.length === 0 ? (

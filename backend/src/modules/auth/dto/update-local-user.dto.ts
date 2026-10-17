@@ -27,6 +27,11 @@ export class UpdateLocalUserDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^[+0-9().\-\s]{7,32}$/)
+  phone?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MinLength(12)
   @MaxLength(256)
   password?: string;

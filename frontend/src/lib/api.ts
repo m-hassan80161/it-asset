@@ -109,6 +109,7 @@ export interface AppUser {
   id: string;
   username: string;
   fullName: string;
+  phone?: string | null;
   role: UserRole;
   authProvider?: "LOCAL" | "CPANEL";
   branch: string | null;
@@ -118,6 +119,7 @@ export interface AppUser {
 export interface CreateLocalUserInput {
   username: string;
   fullName: string;
+  phone?: string;
   password: string;
   role: UserRole;
   branch?: string;
@@ -127,6 +129,7 @@ export interface CreateLocalUserInput {
 export interface UpdateLocalUserInput {
   username?: string;
   fullName?: string;
+  phone?: string | null;
   password?: string;
   role?: UserRole;
   branch?: string | null;
@@ -165,6 +168,7 @@ export interface Ticket {
   branch: string;
   requesterId: string | null;
   requesterName: string;
+  requesterPhone: string | null;
   requesterUsername: string;
   requester: Pick<AppUser, "id" | "username" | "fullName"> | null;
   assignedAdminId: string | null;
@@ -176,6 +180,10 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
+  assignedAt: string | null;
+  closedAt: string | null;
+  waitingUserStartedAt: string | null;
+  waitingUserDurationMs: number;
 }
 
 export interface TicketList {
@@ -206,9 +214,15 @@ export interface ManagerDashboardData {
 }
 
 export const inventoryApi = {
-  list: (skip = 0, take = 50, softwareName = "") =>
-    api.get("/inventory", {
-      params: { skip, take, softwareName: softwareName || undefined },
+  list: (skip = 0, take = 50, softwareName = "", computerName = "", branch = "") =>
+    api.get<InventoryListResponse>("/inventory", {
+      params: {
+        skip,
+        take,
+        softwareName: softwareName || undefined,
+        computerName: computerName || undefined,
+        branch: branch || undefined,
+      },
     }),
   detail: (id: string) => api.get(`/inventory/${id}`),
   remove: (id: string) => api.delete(`/inventory/${id}`),
@@ -241,6 +255,23 @@ export interface BranchPattern {
   createdById: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface InventoryListItem {
+  id: string;
+  computerName: string;
+  loggedInUser?: string | null;
+  osName?: string | null;
+  osVersion?: string | null;
+  lastSeenAt: string;
+  branch?: string | null;
+  software?: Array<{ id: string; name: string; version: string }>;
+  installedSoftware?: Array<{ id: string; name: string; version: string }>;
+}
+
+export interface InventoryListResponse {
+  data: InventoryListItem[];
+  total: number;
 }
 
 export interface ExportDevice {

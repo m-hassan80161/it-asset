@@ -11,6 +11,33 @@ interface TicketCardProps {
 }
 
 const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"];
+const statusColors: Record<TicketStatus, string> = {
+  OPEN: "bg-blue-100 text-blue-800",
+  IN_PROGRESS: "bg-violet-100 text-violet-800",
+  WAITING_USER: "bg-amber-100 text-amber-900",
+  RESOLVED: "bg-emerald-100 text-emerald-800",
+  CLOSED: "bg-slate-200 text-slate-700",
+};
+const priorityColors: Record<Ticket["priority"], string> = {
+  LOW: "bg-slate-100 text-slate-700",
+  MEDIUM: "bg-sky-100 text-sky-800",
+  HIGH: "bg-orange-100 text-orange-800",
+  URGENT: "bg-red-100 text-red-800",
+};
+
+function formatDuration(milliseconds: number) {
+  const seconds = Math.floor(Math.max(0, milliseconds) / 1_000);
+  if (seconds < 60) return `${seconds} ثانية`;
+  const minutes = Math.floor(seconds / 60);
+  const days = Math.floor(minutes / 1_440);
+  const hours = Math.floor((minutes % 1_440) / 60);
+  const remainingMinutes = minutes % 60;
+  return [
+    ...(days ? [`${days} يوم`] : []),
+    ...(hours ? [`${hours} ساعة`] : []),
+    `${remainingMinutes} دقيقة`,
+  ].join(" و");
+}
 
 export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCardProps) {
   const [comment, setComment] = useState("");
@@ -65,6 +92,25 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
 
   const isRequester = ticket.requesterId === user.id;
   const canEdit = mode === "employee" && isRequester && ticket.status === "OPEN";
+  const estimatedAssignment = !ticket.assignedAt && Boolean(ticket.assignedAdminId);
+  const assignedAt = ticket.assignedAt
+    ? new Date(ticket.assignedAt).getTime()
+    : ticket.assignedAdminId
+      ? new Date(ticket.createdAt).getTime()
+      : null;
+  const estimatedClosure = !ticket.closedAt && ticket.status === "CLOSED";
+  const closedAt = ticket.closedAt
+    ? new Date(ticket.closedAt).getTime()
+    : ticket.status === "CLOSED"
+      ? new Date(ticket.resolvedAt ?? ticket.updatedAt).getTime()
+      : null;
+  const waitingSince = ticket.waitingUserStartedAt ??
+    (ticket.status === "WAITING_USER" ? ticket.updatedAt : null);
+  const waitingDuration =
+    ticket.waitingUserDurationMs +
+    (waitingSince
+      ? Math.max(0, Date.now() - new Date(waitingSince).getTime())
+      : 0);
 
   return (
     <article className="space-y-4 rounded-lg bg-white p-5 shadow">
@@ -72,10 +118,10 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
         <div>
           <h3 className="text-lg font-semibold">{ticket.title}</h3>
           <p className="mt-1 text-sm text-slate-500">
-            {ticket.branch} · {ticket.category} · {ticket.priority} · {new Date(ticket.createdAt).toLocaleString()}
+            {ticket.branch} · {ticket.category} · <span className={`rounded-full px-2 py-0.5 ${priorityColors[ticket.priority]}`}>{ticket.priority}</span> · {new Date(ticket.createdAt).toLocaleString()}
           </p>
         </div>
-        <span className="rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">{ticket.status}</span>
+        <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusColors[ticket.status]}`}>{ticket.status}</span>
       </div>
 
       {editing ? (
@@ -122,7 +168,13 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
 
       <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
         <span>مقدم الطلب: {ticket.requester?.fullName ?? ticket.requesterName}</span>
+        {ticket.requesterPhone && <span>هاتف التواصل: <b dir="ltr">{ticket.requesterPhone}</b></span>}
         <span>المسؤول: {ticket.assignedAdmin?.fullName ?? ticket.assignedAdminName ?? "غير مستلم"}</span>
+      </div>
+      <div className="grid gap-2 rounded bg-slate-50 p-3 text-sm sm:grid-cols-3">
+        <p>من الإرسال للاستلام: <b>{assignedAt === null ? "بانتظار الاستلام" : `${estimatedAssignment ? "تقريبًا " : ""}${formatDuration(assignedAt - new Date(ticket.createdAt).getTime())}`}</b></p>
+        <p>من الاستلام للإغلاق: <b>{assignedAt === null ? "غير متاح قبل الاستلام" : `${estimatedAssignment || estimatedClosure ? "تقريبًا " : ""}${formatDuration((closedAt ?? Date.now()) - assignedAt)}${closedAt === null ? " (مستمر)" : ""}`}</b></p>
+        <p>وقت انتظار الموظف: <b>{waitingSince || ticket.waitingUserDurationMs > 0 ? formatDuration(waitingDuration) : "لا يوجد وقت انتظار مسجل"}</b></p>
       </div>
       {canEdit && !editing && (
         <button onClick={() => setEditing(true)} className="rounded border px-3 py-1 text-sm hover:bg-slate-50">تعديل الطلب</button>

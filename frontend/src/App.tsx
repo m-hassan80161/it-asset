@@ -19,6 +19,19 @@ import { Navigation } from "./components/Navigation";
 
 type AuthState = "checking" | "authenticated" | "unauthenticated" | "error";
 
+function isAppUser(value: unknown): value is AppUser {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AppUser>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.username === "string" &&
+    typeof candidate.fullName === "string" &&
+    ["EMPLOYEE", "ADMIN", "MANAGER", "SUPER_ADMIN"].includes(candidate.role ?? "") &&
+    (candidate.branch === null || typeof candidate.branch === "string") &&
+    Array.isArray(candidate.managedBranches)
+  );
+}
+
 export default function App() {
   const location = useLocation();
   const [authState, setAuthState] = useState<AuthState>("checking");
@@ -31,6 +44,9 @@ export default function App() {
     setAuthError("");
     authApi.me()
       .then(({ data }) => {
+        if (!isAppUser(data)) {
+          throw new Error("Authentication endpoint returned an invalid user profile");
+        }
         setCurrentUser(data);
         setAuthState("authenticated");
       })

@@ -14,6 +14,7 @@ export interface TicketFilters {
   priority?: TicketPriority;
   category?: TicketCategory;
   branch?: string;
+  closed?: boolean;
   from?: string;
   to?: string;
   sortBy?: "createdAt" | "priority";
@@ -36,6 +37,7 @@ export const ticketsApi = {
     branch?: string;
     requesterId?: string;
     requesterEmail?: string;
+    requesterPhone?: string;
     remoteSupportType?: RemoteSupportType;
     remoteSupportId?: string;
   }) => apiClient.post<Ticket>("/tickets", input),

@@ -49,6 +49,7 @@ export class AuthGuard implements CanActivate {
             id: true,
             username: true,
             fullName: true,
+            phone: true,
             role: true,
             branch: true,
             managedBranches: true,

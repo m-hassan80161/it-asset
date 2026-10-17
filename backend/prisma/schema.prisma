@@ -70,6 +70,8 @@ model AdminAccount {
   username                 String                  @unique
   passwordHash             String?
   fullName                 String                  @default("System Administrator")
+  phone                    String?
+  dashboardPreferences     Json?
   role                     UserRole                @default(SUPER_ADMIN)
   authProvider             AuthProvider            @default(LOCAL)
   branch                   String?
@@ -381,6 +383,7 @@ model Ticket {
   requester             AdminAccount?           @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: SetNull)
   requesterUsername     String                  @default("unknown")
   requesterName         String                  @default("Unknown user")
+  requesterPhone        String?
   branch                String
   departmentId          String?
   remoteSupportType     RemoteSupportType?
@@ -399,6 +402,10 @@ model Ticket {
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
   resolvedAt            DateTime?
+  assignedAt            DateTime?
+  closedAt              DateTime?
+  waitingUserStartedAt  DateTime?
+  waitingUserDurationMs Float                   @default(0)
 
   @@index([requesterId])
   @@index([assignedAdminId])

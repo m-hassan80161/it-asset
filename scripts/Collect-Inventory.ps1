@@ -1,5 +1,5 @@
 param(
-    [string]$ApiEndpoint = "http://10.22.28.82:3000/api/v1/inventory",
+    [string]$ApiEndpoint = "http://10.22.28.12:3000/api/v1/inventory",
     [bool]$SkipCertValidation = $false
 )
 

@@ -44,7 +44,7 @@ export function SoftwareInventory() {
 
         do {
           const response = await inventoryApi.list(skip, DEVICES_PER_REQUEST);
-          devices = response.data;
+          devices = response.data.data;
           for (const device of devices) {
             for (const item of device.installedSoftware ?? device.software ?? []) {
               rows.push({ ...item, deviceName: device.computerName });

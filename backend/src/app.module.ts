@@ -6,6 +6,8 @@ import { ActiveDirectoryModule } from "./modules/active-directory/ad.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { PrismaModule } from "./common/prisma/prisma.module";
+import { TicketsModule } from "./modules/tickets/tickets.module";
+import { LogsModule } from "./modules/logs/logs.module";
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { PrismaModule } from "./common/prisma/prisma.module";
     ActiveDirectoryModule,
    // FileServerModule,
     OnboardingModule, // depends on AD + FileServer + SoftwareCompliance
+    TicketsModule,
+    LogsModule,
   ],
 })
 export class AppModule {}

@@ -85,6 +85,9 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          CPANEL_URL: ${{ secrets.CPANEL_URL }}
+          CPANEL_API_TOKENS_JSON: ${{ secrets.CPANEL_API_TOKENS_JSON }}
+          CPANEL_IMAP_HOST: ${{ secrets.CPANEL_IMAP_HOST }}
           PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
@@ -97,6 +100,11 @@ jobs:
           POSTGRES_DB=${POSTGRES_DB}
           ADMIN_USERNAME=${ADMIN_USERNAME}
           ADMIN_PASSWORD=${ADMIN_PASSWORD}
+          CPANEL_URL=${CPANEL_URL}
+          CPANEL_API_TOKENS_JSON=${CPANEL_API_TOKENS_JSON}
+          CPANEL_IMAP_HOST=${CPANEL_IMAP_HOST}
+          CPANEL_API_TIMEOUT_MS=8000
+          CPANEL_SYNC_INTERVAL_MS=3600000
           FRONTEND_ORIGIN=https://${PRODUCTION_IP}:8443
           TLS_CERT_DIR=${HOME}/.local/share/itam/certs
           PGADMIN_EMAIL=${PGADMIN_EMAIL}

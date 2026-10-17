@@ -1,0 +1,57 @@
+import { RemoteSupportType, TicketCategory, TicketPriority } from "@prisma/client";
+import { IsEmail, IsEnum, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from "class-validator";
+
+export class CreateTicketDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(160)
+  title: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(10000)
+  description: string;
+
+  @IsEnum(TicketCategory)
+  category: TicketCategory;
+
+  @IsOptional()
+  @IsEnum(TicketPriority)
+  priority?: TicketPriority;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  branch?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  departmentId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  requesterId?: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  requesterEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[+0-9().\-\s]{7,32}$/)
+  @MaxLength(32)
+  requesterPhone?: string;
+
+  @IsOptional()
+  @IsEnum(RemoteSupportType)
+  remoteSupportType?: RemoteSupportType;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  remoteSupportId?: string;
+}

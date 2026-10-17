@@ -153,6 +153,57 @@ backend image starts the compiled NestJS app and never runs `prisma db push` at
 startup. Development Compose continues using the development Dockerfile and
 its development startup behavior.
 
+## cPanel mailbox synchronization
+
+Mailbox discovery uses cPanel UAPI directly on HTTPS port 2083. It does not
+call WHM. Configure a read-only cPanel API token for every hosting account
+whose mailboxes should be synchronized:
+
+```env
+CPANEL_URL=https://your-cpanel-host.example:2083
+CPANEL_API_TOKENS_JSON='{"hosting_user_1":"read_only_token_1","hosting_user_2":"read_only_token_2"}'
+CPANEL_API_TIMEOUT_MS=8000
+CPANEL_SYNC_INTERVAL_MS=3600000
+# Optional; defaults to the hostname in CPANEL_URL. The IMAP certificate must validate for this host.
+CPANEL_IMAP_HOST=your-cpanel-host.example
+```
+
+`CPANEL_URL` is the cPanel base URL; do not append `/execute/Email/list_pops`.
+The backend calls the read-only UAPI `Email/list_pops` once per configured
+hosting account using `Authorization: cpanel username:token`. The JSON object's
+keys must enumerate every hosting account to include. Keep tokens in backend
+environment secrets only, never in the frontend or application logs. Production
+deployments read `CPANEL_URL` and `CPANEL_API_TOKENS_JSON` from GitHub Actions
+secrets.
+
+Create or use tokens with cPanel's `readonly=1` option. cPanel documents that
+these tokens are server-side restricted to operations that do not modify state.
+The sync only upserts mailbox identities and does not create, edit, suspend, or
+delete cPanel data. Failed or incomplete per-account reads leave existing
+mailbox records unchanged. Since this integration intentionally does not use
+WHM, it does not discover hosting accounts automatically or infer suspended
+hosting-account status; administrators maintain the configured token map.
+
+Mailbox identities are stored as full email addresses. Each synchronized
+mailbox receives a local ITAM account with the `EMPLOYEE` role by default;
+existing role assignments are preserved by later syncs. Super administrators
+can change roles in **Accounts**. If an existing local account already uses a
+mailbox address, the sync leaves it untouched and reports a username conflict
+instead of converting its authentication provider.
+
+Mailbox passwords are verified by authenticating to IMAP over TLS on port 993
+using the mailbox email address. This only authenticates and logs out; it does
+not open a mailbox or perform cPanel/IMAP write operations. The hostname defaults
+to the hostname in `CPANEL_URL`; set `CPANEL_IMAP_HOST` if the mail service uses
+a different hostname. TLS certificate validation is required, so the
+certificate must be trusted and valid for the configured hostname. cPanel
+passwords are never stored in ITAM. A mailbox marked suspended for login or an
+ITAM account disabled by an administrator cannot sign in.
+
+Official references: [cPanel username/password API authentication](https://api.docs.cpanel.net/guides/guide-to-api-authentication/guide-to-api-authentication-username-and-password-authentication),
+[cPanel read-only API tokens](https://api.docs.cpanel.net/specifications/cpanel.openapi/api-token-management/tokens-create_full_access),
+and [cPanel UAPI `Email/list_pops`](https://api.docs.cpanel.net/specifications/cpanel.openapi/email/email-list_pops).
+
 On pushes to the `devolp` branch, the CI workflow checks the commit message:
 include `build` to build and publish Docker Hub images, `scan` to build and scan
 images without publishing them, or both words to do both. If neither word is

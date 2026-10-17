@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   const apiTarget = /^(https?:)?\/\//i.test(apiBaseUrl)
     ? apiBaseUrl.replace(/\/api\/v1\/?$/, "")
     : apiBaseUrl.startsWith("/")
-      ? "http://localhost:3000"
+      ? process.env.API_PROXY_TARGET || "http://localhost:3000"
       : apiBaseUrl.replace(/\/api\/v1\/?$/, "");
 
   return {

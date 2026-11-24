@@ -26,5 +26,6 @@ COPY . .
 
 EXPOSE 3000
 
-# 5. التشغيل المباشر للـ Development mode مع المراقبة (Watch Mode)
-CMD ["sh", "-c", "npx prisma db push && npm run start:dev"]
+# 5. Keep schema changes explicit: deploy migrations in the deployment workflow
+# or run `prisma migrate deploy` manually after baselining an existing database.
+CMD ["npm", "run", "start:dev"]

@@ -325,6 +325,14 @@ export function DeviceDetail() {
             <div>
               <strong>Domain:</strong> {device.domain || "Workgroup"}
             </div>
+            <div>
+              <strong>Device type:</strong>{" "}
+              {device.formFactor === "LAPTOP"
+                ? "Laptop"
+                : device.formFactor === "PC"
+                  ? "PC"
+                  : "Unknown"}
+            </div>
             {device.cpu && (
               <>
                 <div>

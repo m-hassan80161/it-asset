@@ -24,6 +24,7 @@ model Device {
   osVersion    String?
   osBuild      String?
   domain       String?
+  formFactor   DeviceFormFactor?
   lastSeenAt   DateTime @default(now())
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -39,6 +40,72 @@ model Device {
   componentHistory DeviceComponentHistory[]
 
   @@index([computerName])
+}
+
+model WindowsAgent {
+  id              String   @id @default(uuid())
+  installId       String   @unique
+  computerName    String
+  primaryMac      String?
+  macAddresses    String[] @default([])
+  loggedInUser    String?
+  domain          String?
+  osName          String?
+  osVersion       String?
+  agentVersion    String
+  snapshot        Json?
+  secretHash      String   @unique
+  lastSeenAt      DateTime @default(now())
+  lastInventoryAt DateTime?
+  isEnabled       Boolean  @default(true)
+  enrolledAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  serverChangeCredentials WindowsAgentServerChangeCredential[]
+
+  @@index([lastSeenAt])
+  @@index([primaryMac])
+}
+
+model WindowsAgentServerChangeCredential {
+  id            String       @id @default(uuid())
+  tokenHash     String       @unique
+  windowsAgentId String
+  agent          WindowsAgent @relation(fields: [windowsAgentId], references: [id], onDelete: Cascade)
+  createdById   String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime     @default(now())
+
+  @@index([windowsAgentId, expiresAt])
+  @@index([expiresAt, consumedAt])
+}
+
+model WindowsAgentEnrollment {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  maxUses     Int       @default(1)
+  useCount    Int       @default(0)
+  createdById String
+  createdAt   DateTime  @default(now())
+
+  @@index([expiresAt, consumedAt])
+}
+
+model WindowsAgentRelease {
+  id          String   @id @default(uuid())
+  version     String   @unique
+  notes       String   @default("")
+  fileName    String
+  storagePath String
+  sha256      String
+  signature   String
+  publishedBy String
+  publishedAt DateTime @default(now())
+
+  @@index([publishedAt])
 }
 
 enum BranchPatternSource {
@@ -87,8 +154,12 @@ model AdminAccount {
   ticketsResolved          Ticket[]                @relation("TicketResolvedAdmin")
   ticketsManaged           Ticket[]                @relation("TicketManager")
   ticketComments           TicketComment[]
+  knowledgeArticles        KnowledgeArticle[]      @relation("KnowledgeArticleAuthor")
   transferRequestsSent     TicketTransferRequest[] @relation("TicketTransferRequester")
   transferRequestsReceived TicketTransferRequest[] @relation("TicketTransferRecipient")
+  trackedAssetsCreated     TrackedAsset[]          @relation("TrackedAssetCreator")
+  assetLocationChanges    AssetLocationHistory[]  @relation("AssetLocationChanger")
+  assetMaintenanceCreated AssetMaintenance[]      @relation("AssetMaintenanceCreator")
 
   @@index([isActive, deleteAfter])
 }
@@ -140,6 +211,21 @@ model AdminSession {
   @@index([expiresAt])
 }
 
+model EmailVerificationChallenge {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  codeHash        String
+  expiresAt       DateTime
+  lastSentAt      DateTime
+  windowStartedAt DateTime
+  sendsInWindow   Int      @default(1)
+  attempts        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
 model CpuInfo {
   id            String @id @default(uuid())
   deviceId      String @unique
@@ -152,12 +238,12 @@ model CpuInfo {
 }
 
 model MotherboardInfo {
-  id           String @id @default(uuid())
-  deviceId     String @unique
-  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  id           String  @id @default(uuid())
+  deviceId     String  @unique
+  device       Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   manufacturer String
   model        String
-  serialNumber String
+  serialNumber String?
 }
 
 model DeviceComponent {
@@ -206,6 +292,125 @@ model DeviceComponentHistory {
   @@index([componentId])
 }
 
+enum AssetType {
+  PRINTER
+  SCANNER
+  PC
+  MONITOR
+  OTHER
+}
+
+model AssetCodeCounter {
+  type       AssetType @id
+  lastNumber Int       @default(0)
+}
+
+model TrackedAsset {
+  id            String                 @id @default(uuid())
+  assetCode     String                 @unique
+  type          AssetType
+  modelName     String
+  serialNumber  String?
+  manufacturerSerialNumber String?
+  location      String
+  branch        String?
+  department    String?
+  employeeId    String?
+  employee      AssetEmployee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  createdById   String?
+  createdBy     AdminAccount?          @relation("TrackedAssetCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdByName String
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  locationHistory AssetLocationHistory[]
+  maintenance   AssetMaintenance[]
+  photos        AssetPhoto[]
+
+  @@index([type, modelName])
+  @@index([serialNumber])
+  @@index([manufacturerSerialNumber])
+  @@index([location])
+  @@index([branch])
+  @@index([employeeId])
+}
+
+model AssetEmployee {
+  id        String         @id @default(uuid())
+  name      String
+  email     String?        @unique
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  assets    TrackedAsset[]
+}
+
+model AssetLocationHistory {
+  id             String        @id @default(uuid())
+  assetId        String
+  asset          TrackedAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fromLocation   String?
+  toLocation     String
+  fromDepartment String?
+  toDepartment   String?
+  fromEmployeeName  String?
+  fromEmployeeEmail String?
+  toEmployeeName    String?
+  toEmployeeEmail   String?
+  changedById    String?
+  changedBy      AdminAccount? @relation("AssetLocationChanger", fields: [changedById], references: [id], onDelete: SetNull)
+  changedByName  String
+  changedAt      DateTime      @default(now())
+
+  @@index([assetId, changedAt])
+}
+
+model AssetMaintenance {
+  id                 String        @id @default(uuid())
+  assetId            String
+  asset              TrackedAsset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  maintenanceDate    DateTime      @default(now())
+  summary            String
+  details            String?
+  createdById        String?
+  createdBy          AdminAccount? @relation("AssetMaintenanceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdByName      String
+  createdAt          DateTime      @default(now())
+  invoices           AssetMaintenanceInvoice[]
+
+  @@index([assetId, maintenanceDate])
+}
+
+model AssetMaintenanceInvoice {
+  id            String           @id @default(uuid())
+  maintenanceId String
+  maintenance   AssetMaintenance @relation(fields: [maintenanceId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileData      String           @db.Text
+  mimeType      String
+  fileSize      Int
+  createdAt     DateTime         @default(now())
+
+  @@index([maintenanceId])
+}
+
+model AssetPhoto {
+  id               String       @id @default(uuid())
+  assetId          String
+  asset            TrackedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  fileName         String
+  fileData         String       @db.Text
+  mimeType         String
+  fileSize         Int
+  caption          String?
+  location         String
+  department       String?
+  employeeName     String?
+  employeeEmail    String?
+  uploadedByName   String
+  createdAt        DateTime     @default(now())
+
+  @@index([assetId, createdAt])
+}
+
 model RamModule {
   id           String  @id @default(uuid())
   deviceId     String
@@ -222,6 +427,12 @@ enum DiskType {
   SSD
   HDD
   NVME
+  UNKNOWN
+}
+
+enum DeviceFormFactor {
+  LAPTOP
+  PC
   UNKNOWN
 }
 
@@ -374,6 +585,7 @@ enum TicketPriority {
 
 model Ticket {
   id                    String                  @id @default(uuid())
+  ticketNumber          Int                     @unique @default(autoincrement())
   title                 String
   description           String
   category              TicketCategory
@@ -383,7 +595,9 @@ model Ticket {
   requester             AdminAccount?           @relation("TicketRequester", fields: [requesterId], references: [id], onDelete: SetNull)
   requesterUsername     String                  @default("unknown")
   requesterName         String                  @default("Unknown user")
+  requesterEmail        String?
   requesterPhone        String?
+  requesterLocation     String?
   branch                String
   departmentId          String?
   remoteSupportType     RemoteSupportType?
@@ -470,6 +684,36 @@ model TicketComment {
 
   @@index([ticketId])
   @@index([authorId])
+}
+
+model KnowledgeArticle {
+  id          String                @id @default(uuid())
+  title       String
+  problem     String
+  solution    String
+  keywords    String                @default("")
+  authorId    String?
+  author      AdminAccount?         @relation("KnowledgeArticleAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  authorName  String
+  attachments KnowledgeAttachment[]
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([createdAt])
+  @@index([authorId])
+}
+
+model KnowledgeAttachment {
+  id        String           @id @default(uuid())
+  articleId String
+  article   KnowledgeArticle @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  fileName  String
+  fileUrl   String
+  fileSize  Int
+  mimeType  String
+  createdAt DateTime         @default(now())
+
+  @@index([articleId])
 }
 
 enum LogLevel {

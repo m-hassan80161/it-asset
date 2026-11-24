@@ -12,7 +12,11 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-itam_admin}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-itam_admin} -d ${POSTGRES_DB:-itam_platform}"
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -32,11 +36,14 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-itam_admin}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-itam_platform}
+      AGENT_UPDATE_PUBLIC_KEY: ${AGENT_UPDATE_PUBLIC_KEY:-}
+      AGENT_RELEASES_DIR: /data/agent-releases
     ports:
       - "3000:3000"
     volumes:
       - ./backend:/app
       - /app/node_modules
+      - agent_release_data:/data/agent-releases
     networks:
       - itam_net
 
@@ -79,7 +86,6 @@ services:
       - "8080:80"
       - "8443:443"
     volumes:
-      # 🔴 استخدام المسار النسبي بوجود النقطة ./
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/certs:/etc/nginx/certs:ro
     networks:
@@ -94,3 +100,4 @@ networks:
 
 volumes:
   postgres_data:
+  agent_release_data:

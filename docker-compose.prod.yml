@@ -36,19 +36,25 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in the deployment environment}
-      CPANEL_URL: ${CPANEL_URL:-}
-      CPANEL_API_TOKENS_JSON: ${CPANEL_API_TOKENS_JSON:-}
-      CPANEL_API_TIMEOUT_MS: ${CPANEL_API_TIMEOUT_MS:-8000}
-      CPANEL_SYNC_INTERVAL_MS: ${CPANEL_SYNC_INTERVAL_MS:-3600000}
-      CPANEL_IMAP_HOST: ${CPANEL_IMAP_HOST:-}
+      EMAIL_VERIFICATION_SECRET: ${EMAIL_VERIFICATION_SECRET:-}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_SECURE: ${MAIL_SECURE:-false}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
       NODE_ENV: production
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-https://localhost:8443}
+      AGENT_UPDATE_PUBLIC_KEY: ${AGENT_UPDATE_PUBLIC_KEY:-}
+      AGENT_RELEASES_DIR: /data/agent-releases
 
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "3000:3000"
+    volumes:
+      - agent_release_data:/data/agent-releases
 
     networks:
       - itam_net
@@ -81,7 +87,7 @@ services:
       - backend
 
     volumes:
-      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/production.conf:/etc/nginx/nginx.conf:ro
       - ${TLS_CERT_DIR:-./nginx/certs}:/etc/nginx/certs:ro
     networks:
       - itam_net
@@ -95,5 +101,7 @@ networks:
 volumes:
   postgres_data:
     name: itam_postgres_data
+  agent_release_data:
+    name: itam_agent_release_data
 
     #sdadj

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LockKeyhole, UserRound } from "lucide-react";
 import axios from "axios";
 import { authApi } from "../lib/api";
@@ -58,7 +58,7 @@ export function Login({ onLogin }: LoginProps) {
         )}
 
         <label className="mb-4 block text-sm font-medium">
-          Username or mailbox email
+          Username or email
           <span className="relative mt-1 block">
             <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -106,6 +106,12 @@ export function Login({ onLogin }: LoginProps) {
         >
           {submitting ? "Signing in..." : "Sign in"}
         </button>
+        <p className="mt-5 text-center text-sm text-slate-600">
+          ليس لديك حساب؟{" "}
+          <Link to="/register" className="font-medium text-blue-700 hover:text-blue-900">
+            إنشاء حساب جديد
+          </Link>
+        </p>
       </form>
     </main>
   );

@@ -122,7 +122,7 @@ jobs:
           docker run --rm \
             --add-host frontend:127.0.0.1 \
             --add-host backend:127.0.0.1 \
-            -v "${GITHUB_WORKSPACE}/nginx/default.conf:/etc/nginx/nginx.conf:ro" \
+            -v "${GITHUB_WORKSPACE}/nginx/production.conf:/etc/nginx/nginx.conf:ro" \
             -v "${cert_dir}:/etc/nginx/certs:ro" \
             nginx:alpine nginx -t
 

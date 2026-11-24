@@ -9,7 +9,6 @@ import {
 } from "../lib/api";
 
 type ManagedUser = AppUser & {
-  authProvider: "LOCAL" | "CPANEL";
   isActive: boolean;
   createdAt: string;
   deleteAfter: string | null;
@@ -290,11 +289,10 @@ export function LocalUsers({ user, onCredentialsChanged }: LocalUsersProps) {
             <input type="tel" inputMode="tel" maxLength={32} value={editPhone} onChange={(event) => setEditPhone(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
           <label className="text-sm font-medium">اسم المستخدم
-            <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={editUsername} onChange={(event) => setEditUsername(event.target.value)} disabled={editing.authProvider === "CPANEL"} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-slate-100" />
+            <input required minLength={3} maxLength={64} pattern="[a-zA-Z0-9._@-]+" value={editUsername} onChange={(event) => setEditUsername(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
           <label className="text-sm font-medium md:col-span-2">كلمة مرور جديدة (اختياري، 12 حرفًا على الأقل)
-            <input type="password" minLength={12} maxLength={256} value={editPassword} onChange={(event) => setEditPassword(event.target.value)} disabled={editing.authProvider === "CPANEL"} className="mt-1 w-full rounded border px-3 py-2 disabled:bg-slate-100" />
-            {editing.authProvider === "CPANEL" && <span className="mt-1 block text-xs text-slate-600">Username and password are managed in cPanel.</span>}
+            <input type="password" minLength={12} maxLength={256} value={editPassword} onChange={(event) => setEditPassword(event.target.value)} className="mt-1 w-full rounded border px-3 py-2" />
           </label>
           {isSuperAdmin && (
             <>

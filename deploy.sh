@@ -37,10 +37,10 @@ check_env() {
 validate_env() {
     local required_vars=(
         "POSTGRES_PASSWORD"
-        "AD_URL"
-        "AD_BIND_DN"
-        "AD_BIND_PASSWORD"
-        "FILESERVER_HOST"
+        "ADMIN_PASSWORD"
+        "EMAIL_VERIFICATION_SECRET"
+        "MAIL_HOST"
+        "MAIL_FROM"
     )
     
     for var in "${required_vars[@]}"; do
@@ -96,8 +96,8 @@ deploy() {
     echo ""
     echo "Next steps:"
     echo "  1. Open http://localhost:5173 in your browser"
-    echo "  2. Configure Active Directory: click 'Sync' button"
-    echo "  3. Discover file server departments"
+    echo "  2. Sign in with the initial administrator credentials"
+    echo "  3. Configure a branch and verify SMTP email registration"
     echo "  4. Test inventory collection from a client"
     echo ""
 }

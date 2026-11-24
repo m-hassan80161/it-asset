@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   Res,
   UnauthorizedException,
@@ -27,9 +28,10 @@ import { DeleteLocalUserDto } from "./dto/delete-local-user.dto";
 import { Roles } from "./roles.decorator";
 import { RolesGuard } from "./roles.guard";
 import { UserRole } from "@prisma/client";
-import { CpanelService } from "./cpanel.service";
-import { LinkCpanelAccountDto } from "./dto/link-cpanel-account.dto";
-import { ProvisionCpanelEmployeeDto } from "./dto/provision-cpanel-employee.dto";
+import { CpanelArchiveService } from "./cpanel-archive.service";
+import { RequestRegistrationCodeDto } from "./dto/request-registration-code.dto";
+import { CompleteRegistrationDto } from "./dto/complete-registration.dto";
+import { CreateCpanelAccountDto } from "./dto/create-cpanel-account.dto";
 
 interface AuthenticatedRequest extends Request {
   adminSessionId?: string;
@@ -41,7 +43,7 @@ interface AuthenticatedRequest extends Request {
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly cpanelService: CpanelService,
+    private readonly cpanelArchiveService: CpanelArchiveService,
   ) {}
 
   @Public()
@@ -57,6 +59,24 @@ export class AuthController {
       this.sessionCookie(session.token, dto.rememberMe ? maxAgeMs : SESSION_DURATION_MS),
     );
     return { username: session.username, expiresAt: session.expiresAt };
+  }
+
+  @Public()
+  @Get("registration/branches")
+  registrationBranches() {
+    return this.authService.listRegistrationBranches();
+  }
+
+  @Public()
+  @Post("registration/code")
+  requestRegistrationCode(@Body() dto: RequestRegistrationCodeDto) {
+    return this.authService.requestRegistrationCode(dto);
+  }
+
+  @Public()
+  @Post("registration/complete")
+  completeRegistration(@Body() dto: CompleteRegistrationDto) {
+    return this.authService.completeRegistration(dto);
   }
 
   @Get("me")
@@ -79,41 +99,36 @@ export class AuthController {
 
   @Get("cpanel/accounts")
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  listCpanelAccounts() {
-    return this.cpanelService.listAccounts();
-  }
-
-  @Post("cpanel/sync")
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  syncCpanelAccounts(@Req() request: AuthenticatedRequest) {
-    if (!request.user) throw new UnauthorizedException("Authentication required");
-    return this.cpanelService.syncAccounts(request.user.id);
-  }
-
-  @Post("cpanel/accounts/:username/link")
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  linkCpanelAccount(
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  listCpanelAccounts(
     @Req() request: AuthenticatedRequest,
-    @Param("username") username: string,
-    @Body() dto: LinkCpanelAccountDto,
+    @Query("prefix") prefix?: string,
+    @Query("search") search?: string,
   ) {
     if (!request.user) throw new UnauthorizedException("Authentication required");
-    return this.cpanelService.linkExistingAccount(username, dto.itamAccountId, request.user.id);
+    return this.cpanelArchiveService.listAccounts(request.user, prefix, search);
   }
 
-  @Post("cpanel/accounts/:username/provision-employee")
+  @Post("cpanel/accounts")
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  provisionCpanelEmployee(
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  addCpanelAccount(
     @Req() request: AuthenticatedRequest,
-    @Param("username") username: string,
-    @Body() dto: ProvisionCpanelEmployeeDto,
+    @Body() dto: CreateCpanelAccountDto,
   ) {
     if (!request.user) throw new UnauthorizedException("Authentication required");
-    return this.cpanelService.createEmployeeAccount(username, dto.branch, request.user.id);
+    return this.cpanelArchiveService.addAccount(request.user, dto.email);
+  }
+
+  @Delete("cpanel/accounts/:username")
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  deleteCpanelAccount(
+    @Req() request: AuthenticatedRequest,
+    @Param("username") username: string,
+  ) {
+    if (!request.user) throw new UnauthorizedException("Authentication required");
+    return this.cpanelArchiveService.deleteAccount(request.user, username);
   }
 
   @Post("users")

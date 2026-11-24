@@ -3,18 +3,27 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { authApi } from "./lib/api";
 import { AppUser } from "./lib/api";
 import { AdminDashboard } from "./pages/AdminDashboard";
+import { AdminTicketCreate } from "./pages/AdminTicketCreate";
 import { BranchPatternSettings } from "./pages/BranchPatternSettings";
 import { EmployeeTickets } from "./pages/EmployeeTickets";
 import { SystemLogs } from "./pages/SystemLogs";
 import { DeviceDetail } from "./pages/DeviceDetail";
 import { DeviceList } from "./pages/DeviceList";
+import { Assets } from "./pages/Assets";
+import { AssetCreate } from "./pages/AssetCreate";
+import { AssetDetail } from "./pages/AssetDetail";
+import { AssetMaintenance } from "./pages/AssetMaintenance";
+import { AssetsReport } from "./pages/AssetsReport";
+import { WindowsAgents } from "./pages/WindowsAgents";
 import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
-import { OnboardingWizard } from "./pages/OnboardingWizard";
+import { Register } from "./pages/Register";
 import { Settings } from "./pages/Settings";
 import { SoftwareInventory } from "./pages/SoftwareInventory";
 import { LocalUsers } from "./pages/LocalUsers";
 import { CpanelUsers } from "./pages/CpanelUsers";
+import { KnowledgeBase } from "./pages/KnowledgeBase";
+import { KnowledgeArticleCreate } from "./pages/KnowledgeArticleCreate";
 import { Navigation } from "./components/Navigation";
 
 type AuthState = "checking" | "authenticated" | "unauthenticated" | "error";
@@ -99,6 +108,9 @@ export default function App() {
   }
 
   if (authState === "unauthenticated") {
+    if (location.pathname === "/register") {
+      return <Register />;
+    }
     return (
       <Login
         key={location.pathname}
@@ -141,6 +153,13 @@ export default function App() {
               ? <AdminDashboard user={currentUser} />
               : <Navigate to="/tickets" replace />
           } />
+          <Route path="/admin/tickets/new" element={
+            currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN"
+              ? <AdminTicketCreate user={currentUser} />
+              : <Navigate to="/tickets" replace />
+          } />
+          <Route path="/knowledge-base" element={isAdmin || canMonitor ? <KnowledgeBase /> : <Navigate to="/tickets" replace />} />
+          <Route path="/knowledge-base/new" element={isAdmin || canMonitor ? <KnowledgeArticleCreate user={currentUser} /> : <Navigate to="/tickets" replace />} />
           <Route path="/manager/dashboard" element={isAdmin || canMonitor ? <Home user={currentUser} /> : <Navigate to="/tickets" replace />} />
           <Route path="/manager/logs" element={canMonitor ? <SystemLogs /> : <Navigate to="/tickets" replace />} />
           <Route path="/monitoring" element={<Navigate to="/manager/dashboard" replace />} />
@@ -148,16 +167,21 @@ export default function App() {
             setCurrentUser(null);
             setAuthState("unauthenticated");
           }} />} />
-          <Route path="/users/cpanel" element={currentUser.role === "SUPER_ADMIN" ? <CpanelUsers user={currentUser} /> : <Navigate to="/tickets" replace />} />
+          <Route path="/users/cpanel" element={currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN" ? <CpanelUsers /> : <Navigate to="/tickets" replace />} />
           <Route path="/logs" element={canMonitor ? <Navigate to="/manager/logs" replace /> : <Navigate to="/tickets" replace />} />
           <Route path="/devices/branch-rules" element={currentUser.role === "SUPER_ADMIN" ? <BranchPatternSettings /> : <Navigate to="/devices" replace />} />
+          <Route path="/assets" element={isAdmin ? <Assets /> : <Navigate to="/tickets" replace />} />
+          <Route path="/assets/new" element={isAdmin ? <AssetCreate /> : <Navigate to="/tickets" replace />} />
+          <Route path="/assets/maintenance" element={isAdmin ? <AssetMaintenance /> : <Navigate to="/tickets" replace />} />
+          <Route path="/assets/report" element={isAdmin ? <AssetsReport /> : <Navigate to="/tickets" replace />} />
+          <Route path="/assets/:id" element={isAdmin ? <AssetDetail /> : <Navigate to="/tickets" replace />} />
+          <Route path="/agents" element={isAdmin ? <WindowsAgents /> : <Navigate to="/tickets" replace />} />
           <Route path="/devices" element={isAdmin ? <DeviceList user={currentUser} /> : <Navigate to="/tickets" replace />} />
           <Route path="/devices/:id" element={isAdmin ? <DeviceDetail /> : <Navigate to="/tickets" replace />} />
           <Route path="/software" element={isAdmin ? <SoftwareInventory /> : <Navigate to="/tickets" replace />} />
-          <Route path="/onboarding" element={isAdmin ? <OnboardingWizard /> : <Navigate to="/tickets" replace />} />
           <Route
             path="/settings"
-            element={<Settings user={currentUser} onCredentialsChanged={() => setAuthState("unauthenticated")} />}
+            element={<Settings onCredentialsChanged={() => setAuthState("unauthenticated")} />}
           />
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

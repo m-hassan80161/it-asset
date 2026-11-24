@@ -4,15 +4,17 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
+
+concurrency:
+  group: itam-production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
     name: Deploy to Production
     runs-on: [self-hosted, linux, x64]
+    if: github.ref == 'refs/heads/main'
     
 
     steps:
@@ -85,13 +87,18 @@ jobs:
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          CPANEL_URL: ${{ secrets.CPANEL_URL }}
-          CPANEL_API_TOKENS_JSON: ${{ secrets.CPANEL_API_TOKENS_JSON }}
-          CPANEL_IMAP_HOST: ${{ secrets.CPANEL_IMAP_HOST }}
+          EMAIL_VERIFICATION_SECRET: ${{ secrets.EMAIL_VERIFICATION_SECRET }}
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_SECURE: ${{ secrets.MAIL_SECURE }}
+          MAIL_USER: ${{ secrets.MAIL_USER }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          AGENT_UPDATE_PUBLIC_KEY: ${{ secrets.AGENT_UPDATE_PUBLIC_KEY }}
           PRODUCTION_IP: ${{ vars.PRODUCTION_IP }}
           PGADMIN_EMAIL: ${{ secrets.PGADMIN_EMAIL }}
           PGADMIN_PASSWORD: ${{ secrets.PGADMIN_PASSWORD }}
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }}
         run: |
           cat > .env <<EOF
           DOCKERHUB_USERNAME=${DOCKERHUB_USERNAME}
@@ -100,11 +107,14 @@ jobs:
           POSTGRES_DB=${POSTGRES_DB}
           ADMIN_USERNAME=${ADMIN_USERNAME}
           ADMIN_PASSWORD=${ADMIN_PASSWORD}
-          CPANEL_URL=${CPANEL_URL}
-          CPANEL_API_TOKENS_JSON=${CPANEL_API_TOKENS_JSON}
-          CPANEL_IMAP_HOST=${CPANEL_IMAP_HOST}
-          CPANEL_API_TIMEOUT_MS=8000
-          CPANEL_SYNC_INTERVAL_MS=3600000
+          EMAIL_VERIFICATION_SECRET=${EMAIL_VERIFICATION_SECRET}
+          MAIL_HOST=${MAIL_HOST}
+          MAIL_PORT=${MAIL_PORT:-587}
+          MAIL_SECURE=${MAIL_SECURE:-false}
+          MAIL_USER=${MAIL_USER}
+          MAIL_PASSWORD=${MAIL_PASSWORD}
+          MAIL_FROM=${MAIL_FROM}
+          AGENT_UPDATE_PUBLIC_KEY=${AGENT_UPDATE_PUBLIC_KEY}
           FRONTEND_ORIGIN=https://${PRODUCTION_IP}:8443
           TLS_CERT_DIR=${HOME}/.local/share/itam/certs
           PGADMIN_EMAIL=${PGADMIN_EMAIL}
@@ -124,9 +134,47 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # ==========================================
-      # Pull prebuilt production images from Docker Hub
+      # Build and publish immutable images from this exact commit
       # ==========================================
-      - name: Pull Production Images
+      - name: Build and Publish Production Images
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          backend_image="${DOCKERHUB_USERNAME}/itam-backend:${IMAGE_TAG}"
+          frontend_image="${DOCKERHUB_USERNAME}/itam-frontend:${IMAGE_TAG}"
+          nginx_image="${DOCKERHUB_USERNAME}/itam-nginx:${IMAGE_TAG}"
+
+          docker build \
+            --file backend/Dockerfile.prod \
+            --tag "${backend_image}" \
+            backend
+          docker build \
+            --build-arg VITE_API_BASE_URL=/api/v1 \
+            --tag "${frontend_image}" \
+            frontend
+          docker build \
+            --file nginx/Dockerfile \
+            --tag "${nginx_image}" \
+            nginx
+
+          docker push "${backend_image}"
+          docker push "${frontend_image}"
+          docker push "${nginx_image}"
+
+          docker image inspect "${backend_image}" >/dev/null
+          docker image inspect "${frontend_image}" >/dev/null
+          docker image inspect "${nginx_image}" >/dev/null
+          docker run --rm --entrypoint sh "${backend_image}" -c '
+            test -f /app/prisma/migrations/20261123120000_ticket_display_number/migration.sql &&
+            test -f /app/prisma/migrations/20261123130000_asset_registry/migration.sql &&
+            test -f /app/prisma/migrations/20261123180000_device_form_factor/migration.sql &&
+            test -f /app/prisma/migrations/20261124100000_reconcile_device_form_factor/migration.sql
+          '
+
+      - name: Pull Commit-Pinned Production Images
         run: |
           set -euo pipefail
           docker compose \
@@ -238,6 +286,47 @@ jobs:
           echo "✅ Migrations completed successfully"
 
       # ==========================================
+      # Verify schema required by this application release
+      # ==========================================
+      - name: Verify Production Database Schema
+        run: |
+          set -euo pipefail
+          schema_check_sql="SELECT
+            to_regclass('public.\"TrackedAsset\"') IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'Ticket'
+                AND column_name = 'ticketNumber'
+            )
+            AND EXISTS (
+              SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'Device'
+                AND column_name = 'formFactor'
+            )
+            AND EXISTS (
+              SELECT 1 FROM pg_type
+              WHERE typname = 'DeviceFormFactor'
+            );"
+
+          schema_ready="$(
+            docker compose \
+              -f docker-compose.prod.yml \
+              exec -T \
+              -e "SCHEMA_CHECK_SQL=${schema_check_sql}" \
+              postgres \
+              sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atq -c "$SCHEMA_CHECK_SQL"'
+          )"
+
+          if [[ "${schema_ready}" != "t" ]]; then
+            echo "::error::Database schema is missing required ticket, asset, or Windows-Agent inventory migrations. Backend startup is blocked."
+            exit 1
+          fi
+
+          echo "✅ Required production tables and columns are present."
+
+      # ==========================================
       # Start Backend after migrations are applied
       # ==========================================
       - name: Start Backend Service
@@ -299,18 +388,19 @@ jobs:
             -f docker-compose.prod.yml \
             ps
           
-          echo "Waiting for services to stabilize..."
-          sleep 5
-          
-          # Check backend health
-          if docker compose \
-            -f docker-compose.prod.yml \
-            exec -T backend curl -f http://localhost:3000/api/health 2>/dev/null
-          then
-            echo "✅ Backend is healthy"
-          else
-            echo "⚠️ Backend might still be initializing"
-          fi
+          echo "Waiting for backend health..."
+          for attempt in {1..15}; do
+            if curl -fsS http://localhost:3000/api/v1/auth/registration/branches >/dev/null
+            then
+              echo "✅ Backend is healthy"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/15... waiting"
+            sleep 2
+          done
+
+          echo "::error::Backend did not become healthy after deployment."
+          exit 1
 
       # ==========================================
       # Show Logs (عند الفشل)

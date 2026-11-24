@@ -5,6 +5,10 @@ yarn.lock
 # Build artifacts
 dist/
 build/
+agent/**/bin/
+agent/**/obj/
+agent/**/publish/
+agent/dist/
 *.tsbuildinfo
 
 # IDE

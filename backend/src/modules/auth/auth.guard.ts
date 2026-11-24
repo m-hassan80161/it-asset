@@ -7,7 +7,6 @@ import {
 import { Request } from "express";
 import { Reflector } from "@nestjs/core";
 import { createHash } from "node:crypto";
-import { AuthProvider, CpanelAccountStatus } from "@prisma/client";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import {
   IS_PUBLIC_KEY,
@@ -54,8 +53,6 @@ export class AuthGuard implements CanActivate {
             branch: true,
             managedBranches: true,
             isActive: true,
-            authProvider: true,
-            cpanelAccount: { select: { status: true } },
           },
         },
       },
@@ -68,14 +65,6 @@ export class AuthGuard implements CanActivate {
     if (!session.admin.isActive) {
       throw new UnauthorizedException("Account is disabled");
     }
-    if (
-      session.admin.authProvider === AuthProvider.CPANEL &&
-      session.admin.cpanelAccount?.status !== CpanelAccountStatus.ACTIVE
-    ) {
-      await this.prisma.adminSession.deleteMany({ where: { id: session.id } });
-      throw new UnauthorizedException("cPanel account is not active");
-    }
-
     request.adminSessionId = session.id;
     const { isActive: _isActive, ...user } = session.admin;
     request.user = user;

@@ -48,8 +48,11 @@ export class TicketsController {
   }
 
   @Get("manager/dashboard")
-  getManagerDashboard(@Req() request: AuthenticatedRequest) {
-    return this.ticketsService.getManagerDashboard(this.requireUser(request));
+  getManagerDashboard(
+    @Req() request: AuthenticatedRequest,
+    @Query() query: TicketQueryDto,
+  ) {
+    return this.ticketsService.getManagerDashboard(this.requireUser(request), query);
   }
 
   @Get("manager/tickets")

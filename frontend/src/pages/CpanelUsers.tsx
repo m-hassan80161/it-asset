@@ -1,116 +1,130 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
-import { AppUser, authApi, CpanelAccount } from "../lib/api";
+import { authApi, CpanelAccount } from "../lib/api";
 
-interface CpanelUsersProps {
-  user: AppUser;
-}
-
-export function CpanelUsers({ user }: CpanelUsersProps) {
+export function CpanelUsers() {
   const [accounts, setAccounts] = useState<CpanelAccount[]>([]);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const [deletingUsername, setDeletingUsername] = useState("");
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-
-  const loadAccounts = async () => {
-    setError("");
-    try {
-      const cpanelResponse = await authApi.cpanelAccounts();
-      setAccounts(cpanelResponse.data);
-    } catch {
-      setError("Unable to load synchronized cPanel mailboxes.");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    void loadAccounts();
-  }, []);
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      setError("");
+      authApi.cpanelAccounts(undefined, search)
+        .then(({ data }) => {
+          if (active) setAccounts(data);
+        })
+        .catch(() => {
+          if (active) setError("تعذر تحميل نتائج البحث في cPanel Mails.");
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, search.trim() ? 200 : 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
 
-  const syncNow = async () => {
-    setSyncing(true);
+  const deleteAccount = async (account: CpanelAccount) => {
+    const confirmed = window.confirm(
+      `هل تريد حذف سجل البريد ${account.username} من cPanel Mails؟ لن يُحذف صندوق البريد الحقيقي أو حساب المستخدم الداخلي.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingUsername(account.username);
     setError("");
-    setNotice("");
     try {
-      const { data } = await authApi.syncCpanelAccounts();
-      setNotice(
-        `Sync completed: ${data.discovered} new, ${data.active} active, ${data.suspended} suspended; ` +
-        `${data.provisioned} ITAM accounts created, ${data.usernameConflicts} username conflicts.`,
-      );
-      await loadAccounts();
-    } catch (error: unknown) {
-      const message = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
-      const reason = typeof message === "string"
-        ? message
-        : Array.isArray(message)
-          ? message.join("; ")
-          : "Check the cPanel URL, configured per-account tokens, and read-only token permissions.";
-      setError(`Mailbox sync failed: ${reason} Existing mailbox statuses were left unchanged.`);
+      await authApi.deleteCpanelAccount(account.username);
+      setAccounts((current) => current.filter(({ username }) => username !== account.username));
+    } catch {
+      setError(`تعذر حذف سجل ${account.username} من cPanel Mails.`);
     } finally {
-      setSyncing(false);
+      setDeletingUsername("");
     }
   };
 
   return (
     <section className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-4">
+      <header>
         <div>
-          <h1 className="text-3xl font-bold">cPanel Mailboxes</h1>
+          <h1 className="text-3xl font-bold">cPanel Mails</h1>
           <p className="mt-2 text-slate-600">
-            cPanel supplies mailbox identities. ITAM roles and access remain managed separately.
+            سجل عناوين البريد المحفوظة لاختيارها عند فتح تيكت؛ لا توجد مزامنة حالية ولا تُستخدم هذه السجلات لتسجيل الدخول.
           </p>
         </div>
-        <button
-          onClick={() => void syncNow()}
-          disabled={syncing || user.role !== "SUPER_ADMIN"}
-          className="rounded bg-blue-700 px-4 py-2 font-medium text-white hover:bg-blue-800 disabled:opacity-60"
-        >
-          {syncing ? "Syncing..." : "Sync cPanel Mailboxes"}
-        </button>
       </header>
 
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
-      {notice && <p role="status" className="rounded bg-green-100 p-3 text-green-800">{notice}</p>}
       <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-        Active mailboxes are synchronized with read-only cPanel tokens and receive an ITAM account with the Employee role by default. Sign-in verifies the mailbox password over TLS-protected IMAP (port 993) and does not change cPanel. Use Accounts to assign roles; cPanel passwords remain managed in cPanel.
+        هذا السجل لا يتصل بخدمة cPanel. حذف سجل هنا لا يحذف صندوق البريد الحقيقي أو حساب المستخدم الداخلي.
       </p>
 
       <section className="overflow-x-auto rounded-lg bg-white shadow">
-        <h2 className="p-5 text-xl font-semibold">Synchronized mailboxes ({accounts.length})</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <h2 className="text-xl font-semibold">السجلات المحفوظة ({accounts.length})</h2>
+          <label className="w-full text-sm sm:max-w-md">
+            بحث في البريد أو النطاق أو حساب الاستضافة
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              className="mt-1 w-full rounded border px-3 py-2"
+              placeholder="اكتب البريد أو النطاق..."
+            />
+          </label>
+        </div>
         {loading ? <p className="p-5">Loading accounts...</p> : (
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-100">
               <tr>
-                <th className="p-3">Email address</th>
-                <th className="p-3">Domain</th>
-                <th className="p-3">cPanel hosting user</th>
-                <th className="p-3">Last recorded status</th>
-                <th className="p-3">ITAM account</th>
-                <th className="p-3">ITAM access / role</th>
+                <th className="p-3">البريد</th>
+                <th className="p-3">النطاق</th>
+                <th className="p-3">حساب الاستضافة</th>
+                <th className="p-3">آخر حالة مسجلة</th>
+                <th className="p-3">آخر مزامنة مسجلة</th>
+                <th className="p-3">الحساب الداخلي المرتبط سابقًا</th>
+                <th className="p-3">إجراء</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {accounts.map((account) => {
                 const itamAccount = account.itamAccount;
                 return (
-                  <tr key={account.username} className={account.status !== "ACTIVE" ? "bg-slate-50 text-slate-500" : ""}>
+                  <tr key={account.username} className="bg-slate-50 text-slate-600">
                     <td className="p-3 font-medium">{account.username}</td>
                     <td className="p-3">{account.domain}</td>
                     <td className="p-3">{account.hostingAccountUsername ?? "Unknown"}</td>
                     <td className="p-3">{account.status}</td>
-                    <td className="p-3">{itamAccount?.fullName ?? "Not linked"}</td>
+                    <td className="p-3">
+                      {new Date(account.lastSyncedAt).toLocaleString()}
+                    </td>
                     <td className="p-3">
                       {itamAccount
-                        ? `${itamAccount.isActive ? "Enabled" : "Disabled"} · ${itamAccount.role}`
-                        : "Not enabled"}
+                        ? `${itamAccount.fullName} · ${itamAccount.username} · ${itamAccount.role}`
+                        : "لا يوجد"}
+                    </td>
+                    <td className="p-3">
+                      <button
+                        type="button"
+                        disabled={Boolean(deletingUsername)}
+                        onClick={() => void deleteAccount(account)}
+                        className="rounded border border-red-300 px-3 py-1 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {deletingUsername === account.username ? "جارٍ الحذف..." : "حذف السجل"}
+                      </button>
                     </td>
                   </tr>
                 );
               })}
               {!accounts.length && (
-                <tr><td colSpan={6} className="p-6 text-center text-slate-500">No cPanel mailboxes have been synchronized.</td></tr>
+                <tr><td colSpan={7} className="p-6 text-center text-slate-500">
+                  {search.trim() ? "لا توجد نتائج مطابقة للبحث." : "لا توجد عناوين بريد محفوظة في cPanel Mails."}
+                </td></tr>
               )}
             </tbody>
           </table>

@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
 import {
   IsArray,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -19,7 +20,7 @@ export class CpuDto {
 export class MotherboardDto {
   @IsString() manufacturer: string;
   @IsString() model: string;
-  @IsString() serialNumber: string;
+  @IsOptional() @IsString() serialNumber?: string;
 }
 
 export class RamModuleDto {
@@ -57,6 +58,8 @@ export class InventoryPayloadDto {
   @IsOptional() @IsString() osVersion?: string;
   @IsOptional() @IsString() osBuild?: string;
   @IsOptional() @IsString() domain?: string;
+  @IsOptional() @IsIn(["LAPTOP", "PC", "UNKNOWN"])
+  formFactor?: "LAPTOP" | "PC" | "UNKNOWN";
 
   @ValidateNested() @Type(() => CpuDto) cpu: CpuDto;
   @ValidateNested() @Type(() => MotherboardDto) motherboard: MotherboardDto;

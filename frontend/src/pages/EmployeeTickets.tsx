@@ -88,7 +88,7 @@ export function EmployeeTickets({ user, create = false }: EmployeeTicketsProps) 
         تصفية الحالة
         <select disabled={closedOnly} value={status} onChange={(event) => setStatus(event.target.value as TicketStatus | "")} className="rounded border px-3 py-2 disabled:bg-slate-100">
           <option value="">{closedOnly ? "الأرشيف: مغلقة" : "كل الحالات"}</option>
-          {["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED"].map((value) => <option key={value}>{value}</option>)}
+          {["OPEN", "IN_PROGRESS", "WAITING_USER"].map((value) => <option key={value}>{value}</option>)}
         </select>
       </label>
       {showTickets && (loading ? <p>جارٍ تحميل الطلبات...</p> : tickets.length === 0 ? (

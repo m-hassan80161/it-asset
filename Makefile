@@ -57,10 +57,6 @@ test-inventory:
 	@echo "Testing inventory endpoint..."
 	curl -X GET http://localhost:3000/api/v1/inventory | jq '.[] | {computerName, osName, lastSeenAt}' | head -20
 
-test-ad:
-	@echo "Testing AD sync..."
-	curl -X POST http://localhost:3000/api/v1/active-directory/sync | jq '.'
-
 test-compliance:
 	@echo "Testing compliance alerts..."
 	curl -X GET http://localhost:3000/api/v1/software-compliance/alerts | jq '.[] | {softwareName, message, laggingCount}'

@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from "@nestjs/common";
-import { BranchPatternSource, Prisma, UserRole } from "@prisma/client";
+import { BranchPatternSource, DiskType, Prisma, UserRole } from "@prisma/client";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { DeviceComponentDto } from "./dto/device-component.dto";
 import { InventoryPayloadDto } from "./dto/inventory-payload.dto";
@@ -21,12 +21,12 @@ export class InventoryService {
   ) {}
 
   /**
-   * Full upsert of a device report coming from the PowerShell collector.
+   * Full upsert of a device report coming from a collector or Windows Agent.
    * Runs as a single transaction so a partial failure never leaves the
    * device in a half-updated state.
    */
-  async ingest(payload: InventoryPayloadDto) {
-    const device = await this.prisma.$transaction(async (tx) => {
+  async ingest(payload: InventoryPayloadDto, transaction?: Prisma.TransactionClient) {
+    const upsertInventory = async (tx: Prisma.TransactionClient) => {
       const dev = await tx.device.upsert({
         where: { computerName: payload.computerName },
         create: {
@@ -36,6 +36,7 @@ export class InventoryService {
           osVersion: payload.osVersion,
           osBuild: payload.osBuild,
           domain: payload.domain,
+          formFactor: payload.formFactor,
         },
         update: {
           loggedInUser: payload.loggedInUser,
@@ -43,6 +44,7 @@ export class InventoryService {
           osVersion: payload.osVersion,
           osBuild: payload.osBuild,
           domain: payload.domain,
+          formFactor: payload.formFactor,
           lastSeenAt: new Date(),
         },
       });
@@ -73,7 +75,7 @@ export class InventoryService {
         await tx.diskDrive.createMany({
           data: payload.disks.map((d) => ({
             deviceId: dev.id,
-            type: d.type as any,
+            type: d.type as DiskType,
             serialNumber: d.serialNumber,
             totalSpaceGb: d.totalSpaceGb,
             freeSpaceGb: d.freeSpaceGb,
@@ -134,7 +136,10 @@ export class InventoryService {
       }
 
       return dev;
-    });
+    };
+    const device = transaction
+      ? await upsertInventory(transaction)
+      : await this.prisma.$transaction(upsertInventory);
 
     this.logger.log(`Ingested inventory for ${device.computerName}`);
     return { deviceId: device.id, status: "ok" };

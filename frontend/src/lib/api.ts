@@ -46,6 +46,17 @@ export const apiClient = api;
 export const authApi = {
   login: (username: string, password: string, rememberMe = false) =>
     api.post("/auth/login", { username, password, rememberMe }),
+  registrationBranches: () => api.get<Array<{ name: string }>>("/auth/registration/branches"),
+  requestRegistrationCode: (email: string) =>
+    api.post("/auth/registration/code", { email }),
+  completeRegistration: (registration: {
+    email: string;
+    code: string;
+    fullName: string;
+    password: string;
+    branch: string;
+    phone?: string;
+  }) => api.post("/auth/registration/complete", registration),
   me: () => api.get("/auth/me"),
   logout: () => api.post("/auth/logout"),
   settings: () => api.get("/auth/settings"),
@@ -62,12 +73,17 @@ export const authApi = {
   admins: () => api.get<ManagedAdmin[]>("/auth/admins"),
   assignAdminBranch: (adminId: string, branch: string) =>
     api.put(`/auth/admins/${adminId}/branch`, { branch }),
-  cpanelAccounts: () => api.get<CpanelAccount[]>("/auth/cpanel/accounts"),
-  syncCpanelAccounts: () => api.post<CpanelSyncSummary>("/auth/cpanel/sync"),
-  linkCpanelAccount: (username: string, itamAccountId: string) =>
-    api.post(`/auth/cpanel/accounts/${encodeURIComponent(username)}/link`, { itamAccountId }),
-  provisionCpanelEmployee: (username: string, branch: string) =>
-    api.post(`/auth/cpanel/accounts/${encodeURIComponent(username)}/provision-employee`, { branch }),
+  cpanelAccounts: (prefix?: string, search?: string) =>
+    api.get<CpanelAccount[]>("/auth/cpanel/accounts", {
+      params: {
+        ...(prefix?.trim() ? { prefix: prefix.trim() } : {}),
+        ...(search?.trim() ? { search: search.trim() } : {}),
+      },
+    }),
+  addCpanelAccount: (email: string) =>
+    api.post<CpanelAccount>("/auth/cpanel/accounts", { email }),
+  deleteCpanelAccount: (username: string) =>
+    api.delete<{ username: string }>(`/auth/cpanel/accounts/${encodeURIComponent(username)}`),
 };
 
 export interface CpanelAccount {
@@ -82,17 +98,6 @@ export interface CpanelAccount {
     isActive: boolean;
     authProvider: "LOCAL" | "CPANEL";
   } | null;
-}
-
-export interface CpanelSyncSummary {
-  discovered: number;
-  active: number;
-  suspended: number;
-  missing: number;
-  provisioned: number;
-  linked: number;
-  usernameConflicts: number;
-  syncedAt: string;
 }
 
 export type UserRole = "EMPLOYEE" | "ADMIN" | "MANAGER" | "SUPER_ADMIN";
@@ -158,6 +163,7 @@ export interface TicketComment {
 
 export interface Ticket {
   id: string;
+  ticketNumber: number;
   title: string;
   description: string;
   category: TicketCategory;
@@ -168,7 +174,9 @@ export interface Ticket {
   branch: string;
   requesterId: string | null;
   requesterName: string;
+  requesterEmail: string | null;
   requesterPhone: string | null;
+  requesterLocation: string | null;
   requesterUsername: string;
   requester: Pick<AppUser, "id" | "username" | "fullName"> | null;
   assignedAdminId: string | null;
@@ -176,6 +184,12 @@ export interface Ticket {
   assignedAdminName: string | null;
   assignedAdminUsername: string | null;
   comments: TicketComment[];
+  transferRequests?: Array<{
+    id: string;
+    targetAdminId: string | null;
+    targetName: string;
+    createdAt: string;
+  }>;
   attachments: Array<{ id: string; fileName: string; fileSize: number; createdAt: string }>;
   createdAt: string;
   updatedAt: string;
@@ -184,6 +198,24 @@ export interface Ticket {
   closedAt: string | null;
   waitingUserStartedAt: string | null;
   waitingUserDurationMs: number;
+}
+
+export interface KnowledgeArticle {
+  id: string;
+  title: string;
+  problem: string;
+  solution: string;
+  keywords: string;
+  authorName: string;
+  createdAt: string;
+  updatedAt: string;
+  attachments: Array<{
+    id: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string;
+    createdAt: string;
+  }>;
 }
 
 export interface TicketList {
@@ -196,18 +228,20 @@ export interface ManagerDashboardData {
   open: number;
   inProgress: number;
   waitingUser: number;
-  resolved: number;
   closed: number;
   highPriority: number;
   urgentPriority: number;
   adminCount: number;
   averageResolutionMinutes: number | null;
   byBranch: Array<{ branch: string; total: number }>;
+  recurrentProblems: Array<{ title: string; category: string; total: number }>;
+  monthlyTickets: Array<{ month: string; total: number }>;
   admins: Array<{
     id: string;
     username: string;
     fullName: string;
     branch: string | null;
+    assignedTickets: number;
     resolvedTickets: number;
     averageResolutionMinutes: number | null;
   }>;
@@ -263,6 +297,7 @@ export interface InventoryListItem {
   loggedInUser?: string | null;
   osName?: string | null;
   osVersion?: string | null;
+  formFactor?: "LAPTOP" | "PC" | "UNKNOWN" | null;
   lastSeenAt: string;
   branch?: string | null;
   software?: Array<{ id: string; name: string; version: string }>;
@@ -274,6 +309,208 @@ export interface InventoryListResponse {
   total: number;
 }
 
+export type AssetType = "PRINTER" | "SCANNER" | "PC" | "MONITOR" | "OTHER";
+
+export interface TrackedAsset {
+  id: string;
+  assetCode: string;
+  type: AssetType;
+  modelName: string;
+  serialNumber: string | null;
+  manufacturerSerialNumber: string | null;
+  location: string;
+  branch: string | null;
+  department: string | null;
+  employee: AssetEmployee | null;
+  createdByName: string;
+  createdAt: string;
+  updatedAt: string;
+  locationHistory?: AssetLocationHistory[];
+  maintenance?: AssetMaintenance[];
+  photos?: AssetPhoto[];
+}
+
+export interface AssetEmployee {
+  id: string;
+  name: string;
+  email: string | null;
+}
+
+export interface AssetLocationHistory {
+  id: string;
+  assetId: string;
+  fromLocation: string | null;
+  toLocation: string;
+  fromDepartment: string | null;
+  toDepartment: string | null;
+  fromEmployeeName: string | null;
+  fromEmployeeEmail: string | null;
+  toEmployeeName: string | null;
+  toEmployeeEmail: string | null;
+  changedByName: string;
+  changedAt: string;
+}
+
+export interface AssetMaintenance {
+  id: string;
+  assetId: string;
+  maintenanceDate: string;
+  summary: string;
+  details: string | null;
+  createdByName: string;
+  createdAt: string;
+  invoices: AssetFileMetadata[];
+}
+
+export interface AssetFileMetadata {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
+}
+
+export interface AssetPhoto extends AssetFileMetadata {
+  assetId: string;
+  caption: string | null;
+  location: string;
+  department: string | null;
+  employeeName: string | null;
+  employeeEmail: string | null;
+  uploadedByName: string;
+}
+
+export interface AssetReport {
+  totalAssets: number;
+  assetsWithMaintenance: number;
+  assetsWithoutMaintenance: number;
+  totalMaintenanceRecords: number;
+  frequentMaintenanceThreshold: number;
+  frequentMaintenanceAssets: Array<{
+    id: string;
+    assetCode: string;
+    type: AssetType;
+    modelName: string;
+    location: string;
+    branch: string | null;
+    maintenanceCount: number;
+    lastMaintenanceDate: string | null;
+  }>;
+  recurringIssues: Array<{
+    summary: string;
+    count: number;
+    assetCount: number;
+  }>;
+}
+
+export interface WindowsAgent {
+  id: string;
+  computerName: string;
+  primaryMac: string | null;
+  macAddresses: string[];
+  loggedInUser: string | null;
+  domain: string | null;
+  osName: string | null;
+  osVersion: string | null;
+  agentVersion: string;
+  lastSeenAt: string;
+  lastInventoryAt: string | null;
+  isEnabled: boolean;
+  enrolledAt: string;
+  online: boolean;
+}
+
+export interface WindowsAgentRelease {
+  version: string | null;
+  notes?: string;
+  sha256?: string;
+  publishedAt?: string;
+}
+
+export const assetsApi = {
+  options: () =>
+    api.get<{ branches: Array<{ name: string }>; employees: AssetEmployee[] }>("/assets/options"),
+  list: (search = "") =>
+    api.get<{ data: TrackedAsset[]; total: number }>("/assets", {
+      params: search.trim() ? { search: search.trim() } : {},
+    }),
+  create: (asset: {
+    type: AssetType;
+    modelName: string;
+    branch: string;
+    department?: string;
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  }) => api.post<TrackedAsset>("/assets", asset),
+  detail: (id: string) => api.get<TrackedAsset>(`/assets/${id}`),
+  updateAssignment: (id: string, assignment: {
+    branch: string;
+    department?: string;
+    employeeId?: string;
+    employeeName?: string;
+    employeeEmail?: string;
+  }) => api.patch<TrackedAsset>(`/assets/${id}/location`, assignment),
+  addMaintenance: (
+    id: string,
+    maintenance: { maintenanceDate?: string; summary: string; details?: string; files?: File[] },
+  ) => {
+    const form = new FormData();
+    if (maintenance.maintenanceDate) form.append("maintenanceDate", maintenance.maintenanceDate);
+    form.append("summary", maintenance.summary);
+    if (maintenance.details) form.append("details", maintenance.details);
+    for (const file of maintenance.files ?? []) form.append("files", file);
+    return api.post<AssetMaintenance>(`/assets/${id}/maintenance`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  addPhoto: (id: string, file: File, caption?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (caption?.trim()) form.append("caption", caption.trim());
+    return api.post<AssetPhoto>(`/assets/${id}/photos`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  photo: (id: string, photoId: string) =>
+    api.get<{ fileName: string; fileUrl: string; mimeType: string }>(`/assets/${id}/photos/${photoId}`),
+  invoice: (id: string, maintenanceId: string, invoiceId: string) =>
+    api.get<{ fileName: string; fileUrl: string; mimeType: string }>(
+      `/assets/${id}/maintenance/${maintenanceId}/invoices/${invoiceId}`,
+    ),
+  maintenanceTimeline: (search = "") =>
+    api.get<TrackedAsset[]>("/assets/maintenance", {
+      params: search.trim() ? { search: search.trim() } : {},
+    }),
+  report: () => api.get<AssetReport>("/assets/report"),
+};
+
+export const windowsAgentApi = {
+  list: () => api.get<WindowsAgent[]>("/agent-management"),
+  createServerChangeCredential: (id: string) =>
+    api.post<{ credential: string; expiresAt: string }>(
+      `/agent-management/${id}/server-change-credentials`,
+    ),
+  setEnabled: (id: string, isEnabled: boolean) =>
+    api.patch<{ id: string; isEnabled: boolean }>(`/agent-management/${id}/enabled`, { isEnabled }),
+  latestRelease: () => api.get<WindowsAgentRelease>("/agent-management/releases/latest"),
+  publishRelease: async (input: {
+    packageFile: File;
+    signatureFile: File;
+    version: string;
+    notes?: string;
+  }) => {
+    const form = new FormData();
+    form.append("package", input.packageFile);
+    form.append("version", input.version);
+    form.append("notes", input.notes ?? "");
+    form.append("signature", await input.signatureFile.text());
+    return api.post<WindowsAgentRelease>("/agent-management/releases", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+};
+
 export interface ExportDevice {
   id: string;
   computerName: string;
@@ -282,6 +519,7 @@ export interface ExportDevice {
   osName: string | null;
   osVersion: string | null;
   osBuild: string | null;
+  formFactor: "LAPTOP" | "PC" | "UNKNOWN" | null;
   lastSeenAt: string;
   cpu: {
     model: string;
@@ -293,7 +531,7 @@ export interface ExportDevice {
   motherboard: {
     manufacturer: string;
     model: string;
-    serialNumber: string;
+    serialNumber: string | null;
   } | null;
   ramModules: Array<{ capacityGb: number; speedMhz: number; slot: string | null }>;
   disks: Array<{ type: string; totalSpaceGb: number; freeSpaceGb: number }>;
@@ -317,27 +555,3 @@ export interface DeviceComponentInput {
   details?: string | null;
   specifications?: Record<string, string>;
 }
-
-export const adApi = {
-  sync: () => api.post("/active-directory/sync"),
-  listUsers: (includeExcluded = false) =>
-    api.get("/active-directory/users", { params: { includeExcluded } }),
-  listGroups: (includeExcluded = false) =>
-    api.get("/active-directory/groups", { params: { includeExcluded } }),
-  listOus: (includeExcluded = false) =>
-    api.get("/active-directory/ous", { params: { includeExcluded } }),
-  hierarchy: (userDn: string) =>
-    api.get("/active-directory/hierarchy", { params: { userDn } }),
-};
-
-export const fileServerApi = {
-  discoverDepartments: () => api.post("/file-server/discover-departments"),
-  listDepartments: () => api.get("/file-server/departments"),
-};
-
-export const onboardingApi = {
-  start: (dto: any) => api.post("/onboarding", dto),
-  list: (skip = 0, take = 20, status?: string) =>
-    api.get("/onboarding", { params: { skip, take, status } }),
-  detail: (id: string) => api.get(`/onboarding/${id}`),
-};

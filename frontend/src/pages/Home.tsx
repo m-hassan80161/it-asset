@@ -29,9 +29,6 @@ export function Home({ user }: HomeProps) {
 
   return (
     <section className="space-y-6">
-      <h1 className="text-3xl font-bold md:text-4xl">
-        {activeSection === "manager" ? "لوحة متابعة المدير" : "إدارة تيكتس الفروع"}
-      </h1>
       {activeSection === "branches" && isAdmin && <AdminDashboard user={user} />}
       {activeSection === "manager" && canMonitor && <ManagerDashboard user={user} />}
     </section>

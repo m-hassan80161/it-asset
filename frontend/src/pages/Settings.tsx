@@ -1,13 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { KeyRound, Save, UserRound } from "lucide-react";
-import { AppUser, authApi } from "../lib/api";
+import { authApi } from "../lib/api";
 
 interface SettingsProps {
-  user: AppUser;
   onCredentialsChanged: () => void;
 }
 
-export function Settings({ user, onCredentialsChanged }: SettingsProps) {
+export function Settings({ onCredentialsChanged }: SettingsProps) {
   const [username, setUsername] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -73,21 +72,11 @@ export function Settings({ user, onCredentialsChanged }: SettingsProps) {
   };
 
   if (loading) return <div className="p-4">Loading settings...</div>;
-  if (user.authProvider === "CPANEL") {
-    return (
-      <section className="mx-auto max-w-2xl">
-        <h1 className="mb-2 text-3xl font-bold">Settings</h1>
-        <p className="rounded-lg bg-white p-6 text-slate-700 shadow">
-          Your username and password are managed in cPanel. Changes to your ITAM role or account access must be made by an ITAM administrator.
-        </p>
-      </section>
-    );
-  }
 
   return (
     <section className="mx-auto max-w-2xl">
       <h1 className="mb-2 text-3xl font-bold">Settings</h1>
-      <p className="mb-6 text-slate-600">Update administrator account and sign-in credentials.</p>
+      <p className="mb-6 text-slate-600">Update your account and sign-in credentials.</p>
 
       <form onSubmit={submit} className="space-y-5 rounded-lg bg-white p-6 shadow">
         {error && (

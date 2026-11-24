@@ -1,5 +1,5 @@
 import { RemoteSupportType, TicketCategory, TicketPriority, TicketStatus } from "@prisma/client";
-import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsDateString, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 
 export class UpdateTicketDto {
   @IsOptional()
@@ -35,4 +35,8 @@ export class UpdateTicketDto {
   @MinLength(1)
   @MaxLength(100)
   remoteSupportId?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  createdAt?: string;
 }

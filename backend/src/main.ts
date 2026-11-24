@@ -2,10 +2,13 @@ import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
+import express from "express";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(express.json({ limit: "2mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "2mb" }));
   app.enableCors({
     origin: process.env.FRONTEND_ORIGIN || true,
     credentials: true,
@@ -17,9 +20,9 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle("IT Asset & AD Automation Platform")
+    .setTitle("IT Asset Management Platform")
     .setDescription(
-      "Inventory, Active Directory sync, File Server provisioning, and Onboarding automation API",
+      "Inventory, email-verified account registration, and branch-based ticketing API",
     )
     .setVersion("1.0")
     .build();

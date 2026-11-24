@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { AppUser, Ticket, TicketCategory, TicketPriority, TicketStatus } from "../lib/api";
 import { TicketFilters, ticketsApi } from "../lib/ticketsApi";
 import { TicketCard } from "../components/TicketCard";
@@ -10,7 +11,7 @@ interface AdminDashboardProps {
 
 const priorities: TicketPriority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const categories: TicketCategory[] = ["HARDWARE", "SOFTWARE", "NETWORK", "PRINTER", "OTHER"];
-const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"];
+const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER"];
 
 export function AdminDashboard({ user }: AdminDashboardProps) {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -25,7 +26,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
   const [status, setStatus] = useState<TicketStatus | "">("");
   const [priority, setPriority] = useState<TicketPriority | "">("");
   const [category, setCategory] = useState<TicketCategory | "">("");
-  const [sortBy, setSortBy] = useState<TicketFilters["sortBy"]>("createdAt");
+  const [sortBy, setSortBy] = useState<TicketFilters["sortBy"]>("ticketNumber");
   const [sortOrder, setSortOrder] = useState<TicketFilters["sortOrder"]>("desc");
   const [skip, setSkip] = useState(0);
   const [total, setTotal] = useState(0);
@@ -126,14 +127,19 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
       <header>
         <h1 className="text-3xl font-bold">إدارة تيكتس الفرع</h1>
         <p className="mt-2 text-slate-600">الفرع: {dashboard.branch ?? user.branch ?? "كل الفروع"}</p>
-        <button
-          type="button"
-          aria-expanded={showTickets}
-          onClick={() => setShowTickets((visible) => !visible)}
-          className="mt-3 rounded border px-4 py-2 hover:bg-slate-50"
-        >
-          {showTickets ? "إخفاء التيكتس المعروضة" : "عرض التيكتس"}
-        </button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link to="/admin/tickets/new" className="rounded bg-blue-700 px-4 py-2 text-white hover:bg-blue-800">
+            فتح تيكت لموظف
+          </Link>
+          <button
+            type="button"
+            aria-expanded={showTickets}
+            onClick={() => setShowTickets((visible) => !visible)}
+            className="rounded border px-4 py-2 hover:bg-slate-50"
+          >
+            {showTickets ? "إخفاء التيكتس المعروضة" : "عرض التيكتس"}
+          </button>
+        </div>
       </header>
       {error && <p role="alert" className="rounded bg-red-100 p-3 text-red-800">{error}</p>}
       {newOpenTickets > 0 && (
@@ -151,7 +157,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
       </div>
       {user.role === "ADMIN" && transferInbox.length > 0 && (
         <section className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-5">
-          <h2 className="text-lg font-semibold">طلبات نقل تيكتس إليك ({transferInbox.length})</h2>
+          <h2 className="text-lg font-semibold">تيكتات بانتظار تأكيد استلامك ({transferInbox.length})</h2>
           {transferInbox.map((request) => (
             <article key={request.id} className="flex flex-wrap items-center justify-between gap-3 rounded bg-white p-4">
               <div>
@@ -162,8 +168,8 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
                 {request.message && <p className="mt-1 text-sm">{request.message}</p>}
               </div>
               <div className="flex gap-2">
-                <button onClick={() => void respondToTransfer(request.id, true)} className="rounded bg-green-700 px-3 py-1 text-white">قبول النقل</button>
-                <button onClick={() => void respondToTransfer(request.id, false)} className="rounded border border-red-300 px-3 py-1 text-red-700">رفض</button>
+                <button onClick={() => void respondToTransfer(request.id, true)} className="rounded bg-green-700 px-3 py-1 text-white">تأكيد استلام التيكت</button>
+                <button onClick={() => void respondToTransfer(request.id, false)} className="rounded border border-red-300 px-3 py-1 text-red-700">رفض الاستلام</button>
               </div>
             </article>
           ))}
@@ -187,7 +193,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
       <div className="grid gap-3 rounded-lg bg-white p-4 shadow sm:grid-cols-2 lg:grid-cols-5">
         <select aria-label="تصفية الحالة" disabled={closedOnly} value={status} onChange={(event) => { setSkip(0); setStatus(event.target.value as TicketStatus | ""); }} className="rounded border px-3 py-2 disabled:bg-slate-100">
           <option value="">{closedOnly ? "الأرشيف: مغلقة" : "كل الحالات"}</option>
-          {statuses.filter((value) => value !== "CLOSED").map((value) => <option key={value}>{value}</option>)}
+          {statuses.map((value) => <option key={value}>{value}</option>)}
         </select>
         <select aria-label="تصفية الأولوية" value={priority} onChange={(event) => { setSkip(0); setPriority(event.target.value as TicketPriority | ""); }} className="rounded border px-3 py-2">
           <option value="">كل الأولويات</option>
@@ -198,6 +204,7 @@ export function AdminDashboard({ user }: AdminDashboardProps) {
           {categories.map((value) => <option key={value}>{value}</option>)}
         </select>
         <select aria-label="ترتيب حسب" value={sortBy} onChange={(event) => setSortBy(event.target.value as TicketFilters["sortBy"])} className="rounded border px-3 py-2">
+          <option value="ticketNumber">رقم التيكت</option>
           <option value="createdAt">تاريخ الإنشاء</option>
           <option value="priority">الأولوية</option>
         </select>

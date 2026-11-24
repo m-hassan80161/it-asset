@@ -1,0 +1,90 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:iis="http://wixtoolset.org/schemas/v4/wxs/iis"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="ITAM Windows Agent"
+           Manufacturer="ITAM"
+           Version="$(var.AgentVersion)"
+           UpgradeCode="D37C1389-0A4F-482E-8E1B-A44936E1D2F5"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer ITAM Windows Agent is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="SERVER_URL" Value="$(var.ServerUrl)" Secure="yes">
+      <RegistrySearch Root="HKLM" Key="SOFTWARE\ITAM\WindowsAgent" Name="ServerUrl" Type="raw" />
+    </Property>
+    <Launch Condition="SERVER_URL"
+            Message="Provide SERVER_URL to configure the agent." />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ITAM">
+        <Directory Id="AGENTFOLDER" Name="WindowsAgent" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentRef Id="AgentService" />
+      <ComponentRef Id="AgentConfiguration" />
+      <ComponentRef Id="ServerTrustCertificate" />
+      <ComponentRef Id="ServerConfigurationTool" />
+      <ComponentRef Id="TrayStartup" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="AGENTFOLDER" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="AgentFiles" Directory="AGENTFOLDER">
+      <Files Include="publish\**">
+        <Exclude Files="publish\ITAM.WindowsAgent.exe" />
+        <Exclude Files="publish\server.cer" />
+        <Exclude Files="publish\**\*.pdb" />
+      </Files>
+    </ComponentGroup>
+
+    <Binary Id="ServerCertificateBinary" SourceFile="publish\server.cer" />
+
+    <Component Id="AgentService" Directory="AGENTFOLDER" Bitness="always64">
+      <File Id="AgentServiceExecutable" Source="publish\ITAM.WindowsAgent.exe" KeyPath="yes" />
+      <ServiceInstall Id="InstallAgentService"
+                      Name="ITAM Windows Agent"
+                      DisplayName="ITAM Windows Agent"
+                      Description="Collects device inventory and securely reports it to ITAM."
+                      Type="ownProcess"
+                      Start="auto"
+                      ErrorControl="normal"
+                      Account="LocalSystem" />
+      <ServiceControl Id="ControlAgentService" Name="ITAM Windows Agent"
+                      Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+    </Component>
+
+    <Component Id="AgentConfiguration" Directory="AGENTFOLDER" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="SOFTWARE\ITAM\WindowsAgent"
+                     Name="ServerUrl" Type="string" Value="[SERVER_URL]" KeyPath="yes" />
+    </Component>
+
+    <Component Id="ServerTrustCertificate" Directory="AGENTFOLDER" Bitness="always64">
+      <RegistryValue Root="HKLM" Key="SOFTWARE\ITAM\WindowsAgent"
+                     Name="ServerCertificateInstalled" Type="integer" Value="1" KeyPath="yes" />
+      <iis:Certificate Id="InstallServerCertificate"
+                       Name="ITAM Windows Agent Server"
+                       StoreName="root"
+                       StoreLocation="localMachine"
+                       Request="no"
+                       BinaryRef="ServerCertificateBinary" />
+    </Component>
+
+    <Component Id="ServerConfigurationTool" Directory="AGENTFOLDER" Bitness="always64">
+      <File Id="ServerConfigurationScript" Source="Change-ITAMAgentServer.ps1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="TrayStartup" Directory="AGENTFOLDER" Bitness="always64">
+      <RegistryValue Root="HKLM"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="ITAM Windows Agent"
+                     Type="string"
+                     Value="&quot;[AGENTFOLDER]Tray\ITAM.WindowsAgent.Tray.exe&quot;"
+                     KeyPath="yes" />
+    </Component>
+  </Fragment>
+</Wix>

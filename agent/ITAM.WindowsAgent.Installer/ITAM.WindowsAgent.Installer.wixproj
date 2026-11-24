@@ -1,0 +1,14 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <OutputName>ITAM.WindowsAgent</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <AgentVersion Condition="'$(AgentVersion)' == ''">1.0.0</AgentVersion>
+    <DefineConstants>AgentVersion=$(AgentVersion);ServerUrl=$(ServerUrl)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Iis.wixext" Version="5.0.2" />
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>

@@ -16,13 +16,14 @@ function csvCell(value: string | number | null | undefined) {
 function exportDevicesCsv(devices: ExportDevice[]) {
   const rows = [
     [
-      "Computer Name", "Domain", "Branch", "OS", "OS Version", "OS Build",
+      "Computer Name", "Device Type", "Domain", "Branch", "OS", "OS Version", "OS Build",
       "CPU", "CPU Cores", "CPU Threads", "CPU Speed MHz", "CPU Architecture",
       "Motherboard", "Motherboard Model", "Motherboard Serial", "RAM", "Disks",
       "Monitors", "Last Seen",
     ],
     ...devices.map((device) => [
       device.computerName,
+      device.formFactor,
       device.domain,
       device.branch,
       device.osName,
@@ -214,6 +215,7 @@ export function DeviceList({ user }: DeviceListProps) {
           <thead className="bg-slate-100 border-b">
             <tr>
               <th className="text-left px-6 py-3">Computer Name</th>
+              <th className="text-left px-6 py-3">Device Type</th>
               <th className="text-left px-6 py-3">Branch</th>
               <th className="text-left px-6 py-3">User</th>
               <th className="text-left px-6 py-3">OS</th>
@@ -231,6 +233,13 @@ export function DeviceList({ user }: DeviceListProps) {
               return (
               <tr key={device.id} className="border-b hover:bg-slate-50 transition">
                 <td className="px-6 py-4 font-medium">{device.computerName}</td>
+                <td className="px-6 py-4 text-sm">
+                  {device.formFactor === "LAPTOP"
+                    ? "Laptop"
+                    : device.formFactor === "PC"
+                      ? "PC"
+                      : "غير محدد"}
+                </td>
                 <td className="px-6 py-4 text-sm">{device.branch ?? "غير محدد"}</td>
                 <td className="px-6 py-4 text-sm text-slate-600">
                   {device.loggedInUser || "—"}
@@ -278,14 +287,14 @@ export function DeviceList({ user }: DeviceListProps) {
             })}
             {loading && devices.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                   Loading devices...
                 </td>
               </tr>
             )}
             {!loading && devices.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-6 py-8 text-center text-slate-500">
                   {computerName || softwareName
                     ? "لا توجد أجهزة مطابقة لخيارات البحث."
                     : "No devices found."}

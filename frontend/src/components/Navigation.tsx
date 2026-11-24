@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { ChevronDown, LayoutDashboard, LogOut, Menu, Settings as SettingsIcon, Ticket as TicketIcon, X } from "lucide-react";
+import { BookOpen, ChevronDown, LayoutDashboard, LogOut, Menu, Settings as SettingsIcon, Ticket as TicketIcon, X } from "lucide-react";
 import { AppUser } from "../lib/api";
 
 interface NavigationProps {
@@ -102,12 +102,21 @@ export function Navigation({ user, loggingOut, onLogout }: NavigationProps) {
             </div>
           )}
 
+          {(isAdmin || canMonitor) && (
+            <NavLink to="/knowledge-base" onClick={closeMobileMenu} className={navLinkClass}>
+              <BookOpen className="h-4 w-4 shrink-0" /> قاعدة المعرفة
+            </NavLink>
+          )}
+
           {isAdmin && (
             <div className="space-y-1 pt-4">
               <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-blue-300">الأصول</p>
-              <NavLink to="/devices" onClick={closeMobileMenu} className={navLinkClass}>الأجهزة</NavLink>
+              <NavLink to="/assets" onClick={closeMobileMenu} className={navLinkClass}>سجل الأصول</NavLink>
+              <NavLink to="/assets/maintenance" onClick={closeMobileMenu} className={navLinkClass}>الصيانات والتحركات</NavLink>
+              <NavLink to="/assets/report" onClick={closeMobileMenu} className={navLinkClass}>تقرير حالة الأجهزة</NavLink>
+              <NavLink to="/agents" onClick={closeMobileMenu} className={navLinkClass}>أجهزة Agent ويندوز</NavLink>
+              <NavLink to="/devices" onClick={closeMobileMenu} className={navLinkClass}>جرد الأجهزة الآلي</NavLink>
               <NavLink to="/software" onClick={closeMobileMenu} className={navLinkClass}>البرامج</NavLink>
-              <NavLink to="/onboarding" onClick={closeMobileMenu} className={navLinkClass}>تهيئة الموظفين</NavLink>
             </div>
           )}
 
@@ -125,6 +134,9 @@ export function Navigation({ user, loggingOut, onLogout }: NavigationProps) {
               {settingsMenuOpen && (
                 <div className="space-y-1 border-l border-blue-800 pl-2">
                   <NavLink to="/settings" onClick={() => { setSettingsMenuOpen(false); closeMobileMenu(); }} className={navLinkClass}>إعدادات الحساب</NavLink>
+                  {(user.role === "ADMIN" || user.role === "SUPER_ADMIN") && (
+                    <NavLink to="/users/cpanel" onClick={() => { setSettingsMenuOpen(false); closeMobileMenu(); }} className={navLinkClass}>cPanel Mails</NavLink>
+                  )}
                   {(user.role === "ADMIN" || isEmployee) && (
                     <NavLink to="/users" onClick={closeMobileMenu} className={navLinkClass}>
                       {isEmployee ? "حسابي" : "موظفو الفرع"}
@@ -135,7 +147,6 @@ export function Navigation({ user, loggingOut, onLogout }: NavigationProps) {
                       <NavLink to="/devices/branch-rules" onClick={closeMobileMenu} className={navLinkClass}>الفروع وقواعد الأجهزة</NavLink>
                       <NavLink to="/users" onClick={closeMobileMenu} className={navLinkClass}>الحسابات</NavLink>
                       <NavLink to="/manager/logs" onClick={closeMobileMenu} className={navLinkClass}>سجلات النظام</NavLink>
-                      <NavLink to="/users/cpanel" onClick={closeMobileMenu} className={navLinkClass}>صناديق cPanel</NavLink>
                     </>
                   )}
                   {canMonitor && user.role !== "SUPER_ADMIN" && (

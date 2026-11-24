@@ -16,6 +16,7 @@ import {
 enum TicketSortField {
   CREATED_AT = "createdAt",
   PRIORITY = "priority",
+  TICKET_NUMBER = "ticketNumber",
 }
 
 export class TicketQueryDto {
@@ -37,6 +38,11 @@ export class TicketQueryDto {
   branch?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  assignedAdminId?: string;
+
+  @IsOptional()
   @IsDateString()
   from?: string;
 
@@ -51,7 +57,7 @@ export class TicketQueryDto {
 
   @IsOptional()
   @IsEnum(TicketSortField)
-  sortBy: TicketSortField = TicketSortField.CREATED_AT;
+  sortBy: TicketSortField = TicketSortField.TICKET_NUMBER;
 
   @IsOptional()
   @IsIn(["asc", "desc"])

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppUser, ManagedAdmin, ManagerDashboardData, Ticket, TicketCategory, TicketPriority, TicketStatus, authApi } from "../lib/api";
 import { TicketFilters, ticketsApi } from "../lib/ticketsApi";
+import { formatTicketCode } from "../lib/ticketFormatting";
 
 interface ManagerDashboardProps {
   user: AppUser;
@@ -11,16 +12,17 @@ const emptyStats: ManagerDashboardData = {
   open: 0,
   inProgress: 0,
   waitingUser: 0,
-  resolved: 0,
   closed: 0,
   highPriority: 0,
   urgentPriority: 0,
   adminCount: 0,
   averageResolutionMinutes: null,
   byBranch: [],
+  recurrentProblems: [],
+  monthlyTickets: [],
   admins: [],
 };
-const ticketStatuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"];
+const ticketStatuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER"];
 const ticketCategories: TicketCategory[] = ["HARDWARE", "SOFTWARE", "NETWORK", "PRINTER", "OTHER"];
 const ticketPriorities: TicketPriority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const ticketStatusColors: Record<TicketStatus, string> = {
@@ -29,6 +31,13 @@ const ticketStatusColors: Record<TicketStatus, string> = {
   WAITING_USER: "bg-amber-100 text-amber-900",
   RESOLVED: "bg-emerald-100 text-emerald-800",
   CLOSED: "bg-slate-200 text-slate-700",
+};
+const ticketStatusLabels: Record<TicketStatus, string> = {
+  OPEN: "مفتوحة",
+  IN_PROGRESS: "قيد المعالجة",
+  WAITING_USER: "بانتظار الموظف",
+  RESOLVED: "مغلقة",
+  CLOSED: "مغلقة",
 };
 const ticketPriorityColors: Record<TicketPriority, string> = {
   LOW: "bg-slate-100 text-slate-700",
@@ -58,7 +67,7 @@ const defaultColumnWidths: Record<TicketColumn, number> = {
   admin: 180,
   timing: 330,
   priority: 120,
-  assignment: 200,
+  assignment: 280,
 };
 function durationLabel(milliseconds: number) {
   const totalSeconds = Math.floor(Math.max(0, milliseconds) / 1_000);
@@ -96,7 +105,7 @@ function ticketTiming(ticket: Ticket) {
 
 function ticketSortValue(ticket: Ticket, column: TicketColumn): string | number {
   switch (column) {
-    case "id": return ticket.id;
+    case "id": return ticket.ticketNumber;
     case "title": return ticket.title;
     case "requester": return ticket.requester?.fullName ?? ticket.requesterName;
     case "status": return ticket.status;
@@ -120,7 +129,7 @@ function downloadCsv(tickets: Ticket[]) {
   const rows = [
     ["Ticket ID", "Title", "Requester", "Status", "Branch", "Assigned Admin", "Priority"],
     ...tickets.map((ticket) => [
-      ticket.id,
+      formatTicketCode(ticket.ticketNumber),
       ticket.title,
       `${ticket.requester?.fullName ?? ticket.requesterName} (${ticket.requester?.username ?? ticket.requesterUsername})`,
       ticket.status,
@@ -138,6 +147,19 @@ function downloadCsv(tickets: Ticket[]) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function dateTimeLocalValue(date: Date) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 19);
+}
+
+function formatMonth(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleDateString("ar", {
+    year: "numeric",
+    month: "long",
+  });
+}
+
 export function ManagerDashboard({ user }: ManagerDashboardProps) {
   const [stats, setStats] = useState(emptyStats);
   const [admins, setAdmins] = useState<ManagedAdmin[]>([]);
@@ -147,30 +169,41 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
   const [status, setStatus] = useState<TicketStatus | "">("");
   const [priority, setPriority] = useState<TicketPriority | "">("");
   const [category, setCategory] = useState<TicketCategory | "">("");
+  const [assignedAdminId, setAssignedAdminId] = useState("");
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
   const [skip, setSkip] = useState(0);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
   const [closedOnly, setClosedOnly] = useState(false);
-  const [ticketSort, setTicketSort] = useState<TicketSort>({ column: "id", direction: "asc" });
+  const [ticketSort, setTicketSort] = useState<TicketSort>({ column: "id", direction: "desc" });
 
   const load = useCallback(async () => {
     setError("");
+    if (rangeFrom && rangeTo && new Date(rangeFrom) > new Date(rangeTo)) {
+      setError("تاريخ البداية يجب أن يكون قبل تاريخ النهاية.");
+      setLoading(false);
+      return;
+    }
     const filters: TicketFilters = {
       ...(branch ? { branch } : {}),
       ...(status ? { status } : {}),
       ...(priority ? { priority } : {}),
       ...(category ? { category } : {}),
+      ...(assignedAdminId ? { assignedAdminId } : {}),
+      ...(rangeFrom ? { from: new Date(rangeFrom).toISOString() } : {}),
+      ...(rangeTo ? { to: new Date(rangeTo).toISOString() } : {}),
       closed: closedOnly,
       skip,
       take: 100,
-      sortBy: "createdAt",
+      sortBy: "ticketNumber",
       sortOrder: "desc",
     };
     try {
       const [overview, ticketList, adminList] = await Promise.all([
-        ticketsApi.managerDashboard(),
+        ticketsApi.managerDashboard({ ...filters, closed: undefined }),
         ticketsApi.managerList(filters),
         authApi.admins(),
       ]);
@@ -183,7 +216,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
     } finally {
       setLoading(false);
     }
-  }, [branch, category, closedOnly, priority, skip, status]);
+  }, [assignedAdminId, branch, category, closedOnly, priority, rangeFrom, rangeTo, skip, status]);
 
   useEffect(() => {
     void load();
@@ -202,10 +235,13 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           ...(status ? { status } : {}),
           ...(priority ? { priority } : {}),
           ...(category ? { category } : {}),
+          ...(assignedAdminId ? { assignedAdminId } : {}),
+          ...(rangeFrom ? { from: new Date(rangeFrom).toISOString() } : {}),
+          ...(rangeTo ? { to: new Date(rangeTo).toISOString() } : {}),
           closed: closedOnly,
           skip: pageSkip,
           take: 100,
-          sortBy: "createdAt",
+          sortBy: "ticketNumber",
           sortOrder: "desc",
         });
         all.push(...response.data.data);
@@ -222,7 +258,6 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
     { label: "مفتوحة", value: stats.open },
     { label: "قيد المعالجة", value: stats.inProgress },
     { label: "بانتظار الموظف", value: stats.waitingUser },
-    { label: "تم الحل", value: stats.resolved },
     { label: "مغلقة", value: stats.closed },
   ], [stats]);
 
@@ -231,6 +266,14 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
   const maxResolution = Math.max(
     1,
     ...stats.admins.map((admin) => admin.averageResolutionMinutes ?? 0),
+  );
+  const mostAssignedAdmin = stats.admins.reduce<(typeof stats.admins)[number] | null>(
+    (current, admin) => !current || admin.assignedTickets > current.assignedTickets ? admin : current,
+    null,
+  );
+  const mostProblemBranch = stats.byBranch.reduce<(typeof stats.byBranch)[number] | null>(
+    (current, item) => !current || item.total > current.total ? item : current,
+    null,
   );
   const adminsForBranch = (ticketBranch: string) =>
     admins.filter((admin) => admin.isActive && (
@@ -289,6 +332,41 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
 
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">ملخص الإحصائيات</h2>
+      <div className="space-y-3 rounded-lg bg-white p-4 shadow">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => {
+            const now = new Date();
+            setRangeFrom(dateTimeLocalValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)));
+            setRangeTo(dateTimeLocalValue(now));
+            setSkip(0);
+          }} className="rounded border px-3 py-2 hover:bg-slate-50">آخر 24 ساعة</button>
+          <button type="button" onClick={() => {
+            const now = new Date();
+            setRangeFrom(dateTimeLocalValue(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)));
+            setRangeTo(dateTimeLocalValue(now));
+            setSkip(0);
+          }} className="rounded border px-3 py-2 hover:bg-slate-50">آخر 7 أيام</button>
+          <button type="button" onClick={() => {
+            setRangeFrom("");
+            setRangeTo("");
+            setSkip(0);
+          }} className="rounded border px-3 py-2 hover:bg-slate-50">كل الفترات</button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-sm">من تاريخ ووقت
+            <input type="datetime-local" step="1" value={rangeFrom} onChange={(event) => {
+              setRangeFrom(event.target.value);
+              setSkip(0);
+            }} className="mt-1 w-full rounded border px-3 py-2" />
+          </label>
+          <label className="text-sm">إلى تاريخ ووقت
+            <input type="datetime-local" step="1" value={rangeTo} onChange={(event) => {
+              setRangeTo(event.target.value);
+              setSkip(0);
+            }} className="mt-1 w-full rounded border px-3 py-2" />
+          </label>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ["إجمالي التيكتس", stats.total],
@@ -308,6 +386,43 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           </p>
         </div>
       </div>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-3">
+        <article className="rounded-lg bg-white p-5 shadow">
+          <h2 className="font-semibold">أكثر مسؤول تعامل مع تيكتات</h2>
+          <p className="mt-2 text-xl font-bold text-blue-800">{mostAssignedAdmin?.fullName ?? "لا توجد بيانات"}</p>
+          <p className="text-sm text-slate-500">{mostAssignedAdmin?.assignedTickets ?? 0} تيكت مسند</p>
+        </article>
+        <article className="rounded-lg bg-white p-5 shadow">
+          <h2 className="font-semibold">أكثر فرع به مشاكل</h2>
+          <p className="mt-2 text-xl font-bold text-blue-800">{mostProblemBranch?.branch ?? "لا توجد بيانات"}</p>
+          <p className="text-sm text-slate-500">{mostProblemBranch?.total ?? 0} تيكت</p>
+        </article>
+        <article className="rounded-lg bg-white p-5 shadow">
+          <h2 className="mb-3 font-semibold">المشاكل المتكررة</h2>
+          <ul className="space-y-2 text-sm">
+            {stats.recurrentProblems.slice(0, 5).map((problem) => (
+              <li key={`${problem.category}:${problem.title}`} className="flex justify-between gap-2">
+                <span className="truncate">{problem.title} · {problem.category}</span><b>{problem.total}</b>
+              </li>
+            ))}
+            {!stats.recurrentProblems.length && <li className="text-slate-500">لا توجد مشاكل متكررة في الفترة.</li>}
+          </ul>
+        </article>
+      </section>
+
+      <section className="rounded-lg bg-white p-5 shadow">
+        <h2 className="mb-4 text-lg font-semibold">عدد التيكتس شهريًا</h2>
+        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+          {stats.monthlyTickets.map((item) => (
+            <div key={item.month} className="flex justify-between rounded bg-slate-50 p-3">
+              <span>{formatMonth(item.month)}</span>
+              <b>{item.total}</b>
+            </div>
+          ))}
+          {!stats.monthlyTickets.length && <p className="text-sm text-slate-500">لا توجد تيكتس في الفترة المحددة.</p>}
+        </div>
       </section>
 
       <div className="grid gap-5 lg:grid-cols-3">
@@ -379,7 +494,16 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           </select>
           <select aria-label="الحالة" disabled={closedOnly} value={status} onChange={(event) => { setSkip(0); setStatus(event.target.value as TicketStatus | ""); }} className="rounded border px-3 py-2 disabled:bg-slate-100">
             <option value="">{closedOnly ? "الأرشيف: مغلقة" : "كل الحالات"}</option>
-            {ticketStatuses.filter((value) => value !== "CLOSED").map((value) => <option key={value}>{value}</option>)}
+            {ticketStatuses.map((value) => <option key={value}>{value}</option>)}
+          </select>
+          <select aria-label="المسؤول" value={assignedAdminId} onChange={(event) => {
+            setSkip(0);
+            setAssignedAdminId(event.target.value);
+          }} className="rounded border px-3 py-2">
+            <option value="">كل المسؤولين</option>
+            {admins.filter((admin) => admin.isActive).map((admin) => (
+              <option key={admin.id} value={admin.id}>{admin.fullName} · {admin.branch ?? "بدون فرع"}</option>
+            ))}
           </select>
           <select aria-label="الأولوية" value={priority} onChange={(event) => { setSkip(0); setPriority(event.target.value as TicketPriority | ""); }} className="rounded border px-3 py-2">
             <option value="">كل الأولويات</option>
@@ -408,10 +532,10 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
                   {orderedTableColumns.map(([column]) => {
                     let cell: React.ReactNode;
                     switch (column) {
-                      case "id": cell = <span className="font-mono" title={ticket.id}>{ticket.id}</span>; break;
+                      case "id": cell = <span className="font-mono" title={ticket.id}>#{formatTicketCode(ticket.ticketNumber)}</span>; break;
                       case "title": cell = ticket.title; break;
-                      case "requester": cell = <><div>{ticket.requester?.fullName ?? ticket.requesterName}</div>{ticket.requesterPhone && <div dir="ltr" className="text-xs text-slate-500">{ticket.requesterPhone}</div>}</>; break;
-                      case "status": cell = <span className={`rounded-full px-2 py-1 text-xs font-medium ${ticketStatusColors[ticket.status]}`}>{ticket.status}</span>; break;
+                      case "requester": cell = <><div>{ticket.requester?.fullName ?? ticket.requesterName}</div>{ticket.requesterEmail && <div dir="ltr" className="text-xs text-slate-500">{ticket.requesterEmail}</div>}{ticket.requesterLocation && <div className="text-xs text-slate-500">{ticket.requesterLocation}</div>}{ticket.requesterPhone && <div dir="ltr" className="text-xs text-slate-500">{ticket.requesterPhone}</div>}</>; break;
+                      case "status": cell = <span className={`rounded-full px-2 py-1 text-xs font-medium ${ticketStatusColors[ticket.status]}`}>{ticketStatusLabels[ticket.status]}</span>; break;
                       case "branch": cell = ticket.branch; break;
                       case "admin": cell = ticket.assignedAdmin?.fullName ?? ticket.assignedAdminName ?? "غير مسند"; break;
                       case "timing": {
@@ -424,9 +548,57 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
                         break;
                       }
                       case "priority": cell = <span className={`rounded-full px-2 py-1 text-xs font-medium ${ticketPriorityColors[ticket.priority]}`}>{ticket.priority}</span>; break;
-                      case "assignment": cell = (!ticket.assignedAdminId || user.role === "SUPER_ADMIN") ? <div className="flex gap-2"><select aria-label={`اختر أدمن للتيكت ${ticket.id}`} value={assignments[ticket.id] ?? ticket.assignedAdminId ?? ""} onChange={(event) => setAssignments((current) => ({ ...current, [ticket.id]: event.target.value }))} className="max-w-40 rounded border px-2 py-1"><option value="">اختر أدمن</option>{adminsForBranch(ticket.branch).map((admin) => <option key={admin.id} value={admin.id}>{admin.fullName}</option>)}</select><button disabled={!assignments[ticket.id] || assignments[ticket.id] === ticket.assignedAdminId} onClick={() => void assign(ticket)} className="rounded border px-2 py-1 disabled:opacity-50">{ticket.assignedAdminId ? "تغيير" : "إسناد"}</button></div> : "—"; break;
+                      case "assignment": {
+                        const pendingAssignment = ticket.transferRequests?.[0];
+                        const selectedAdminId = assignments[ticket.id] ??
+                          pendingAssignment?.targetAdminId ??
+                          ticket.assignedAdminId ??
+                          "";
+                        const cancellingPending = Boolean(
+                          pendingAssignment &&
+                          selectedAdminId &&
+                          selectedAdminId === ticket.assignedAdminId,
+                        );
+                        const alreadySelected = selectedAdminId === ticket.assignedAdminId &&
+                          !cancellingPending;
+                        cell = user.role !== "ADMIN" || !ticket.assignedAdminId
+                          ? <div className="space-y-1">
+                              <label className="block text-xs font-semibold">
+                                إسناد المسؤول
+                                <select
+                                  aria-label={`إسناد المسؤول للتيكت ${formatTicketCode(ticket.ticketNumber)}`}
+                                  value={selectedAdminId}
+                                  onChange={(event) => setAssignments((current) => ({ ...current, [ticket.id]: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-2 text-sm font-normal"
+                                >
+                                  <option value="">اختر أدمن</option>
+                                  {adminsForBranch(ticket.branch).map((admin) => (
+                                    <option key={admin.id} value={admin.id}>{admin.fullName}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  disabled={!selectedAdminId || alreadySelected || selectedAdminId === pendingAssignment?.targetAdminId}
+                                  onClick={() => void assign(ticket)}
+                                  className="w-full rounded border px-2 py-2 text-sm disabled:opacity-50"
+                                >
+                                  {cancellingPending
+                                    ? "إلغاء النقل"
+                                    : pendingAssignment || ticket.assignedAdminId
+                                      ? "إعادة الإسناد"
+                                      : "إسناد وإشعار"}
+                                </button>
+                              </div>
+                              {pendingAssignment && (
+                                <span className="text-xs text-amber-700">بانتظار تأكيد {pendingAssignment.targetName}</span>
+                              )}
+                            </div>
+                          : "—";
+                        break;
+                      }
                     }
-                    return <td key={column} className={`p-3 ${column === "timing" ? "whitespace-normal" : "truncate"}`}>{cell}</td>;
+                    return <td key={column} className={`p-3 ${column === "timing" || column === "assignment" || column === "requester" ? "whitespace-normal break-words" : "truncate"}`}>{cell}</td>;
                   })}
                 </tr>
               ))}
@@ -446,7 +618,7 @@ export function ManagerDashboard({ user }: ManagerDashboardProps) {
           <div key={admin.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white p-4 shadow">
             <div>
               <p className="font-semibold">{admin.fullName}</p>
-              <p className="text-sm text-slate-500">{admin.resolvedTickets} طلب محلول · متوسط {admin.averageResolutionMinutes ?? "—"} دقيقة</p>
+              <p className="text-sm text-slate-500">{admin.assignedTickets} تيكت مسند · متوسط الإغلاق {admin.averageResolutionMinutes ?? "—"} دقيقة</p>
             </div>
             <label className="flex items-center gap-2 text-sm">
               الفرع

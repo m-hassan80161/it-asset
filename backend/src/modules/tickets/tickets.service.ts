@@ -34,6 +34,10 @@ const ticketInclude = {
     },
     orderBy: { createdAt: "asc" as const },
   },
+  transferRequests: {
+    where: { status: "PENDING" as const },
+    select: { id: true, targetAdminId: true, targetName: true, createdAt: true },
+  },
 } satisfies Prisma.TicketInclude;
 
 @Injectable()
@@ -48,8 +52,28 @@ export class TicketsService {
     if (Boolean(dto.remoteSupportType) !== Boolean(dto.remoteSupportId?.trim())) {
       throw new BadRequestException("Choose a remote support type and provide its ID together");
     }
-    let requester = actor;
-    if (dto.requesterId || dto.requesterEmail) {
+    const supportCallTicket =
+      (actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN) &&
+      Boolean(dto.requesterName?.trim());
+    if (dto.requesterName && !supportCallTicket) {
+      throw new ForbiddenException("Only support staff can create a ticket for an unregistered caller");
+    }
+    if (supportCallTicket && !dto.requesterLocation?.trim()) {
+      throw new BadRequestException("The caller's location is required");
+    }
+    if (dto.createdAt && actor.role === UserRole.EMPLOYEE) {
+      throw new ForbiddenException("Only support staff can set the ticket creation date");
+    }
+    let requesterId: string | null = actor.id;
+    let requesterUsername = actor.username;
+    let requesterName = actor.fullName;
+    let requesterEmail: string | undefined;
+    if (supportCallTicket) {
+      requesterId = null;
+      requesterName = dto.requesterName!.trim();
+      requesterEmail = dto.requesterEmail?.trim().toLowerCase();
+      requesterUsername = requesterEmail || "phone-call";
+    } else if (dto.requesterId || dto.requesterEmail) {
       if (actor.role !== UserRole.EMPLOYEE || dto.requesterId === actor.id) {
         throw new ForbiddenException("Only employees may submit a ticket for a colleague");
       }
@@ -73,12 +97,10 @@ export class TicketsService {
       if (colleague.id === actor.id) {
         throw new BadRequestException("Enter a colleague's email, not your own");
       }
-      requester = {
-        ...actor,
-        id: colleague.id,
-        username: colleague.username,
-        fullName: colleague.fullName,
-      };
+      requesterId = colleague.id;
+      requesterUsername = colleague.username;
+      requesterName = colleague.fullName;
+      requesterEmail = colleague.username;
     }
     const manager = await this.prisma.adminAccount.findFirst({
       where: { role: UserRole.MANAGER, isActive: true, managedBranches: { has: branch } },
@@ -90,15 +112,28 @@ export class TicketsService {
         description: dto.description.trim(),
         category: dto.category,
         priority: dto.priority,
-        requesterId: requester.id,
-        requesterUsername: requester.username,
-        requesterName: requester.fullName,
-        requesterPhone: dto.requesterPhone?.trim() || actor.phone,
+        requesterId,
+        requesterUsername,
+        requesterName,
+        requesterEmail,
+        requesterPhone: supportCallTicket
+          ? dto.requesterPhone?.trim()
+          : dto.requesterPhone?.trim() || actor.phone,
+        requesterLocation: supportCallTicket ? dto.requesterLocation?.trim() : undefined,
         branch,
         departmentId: dto.departmentId?.trim(),
         remoteSupportType: dto.remoteSupportType,
         remoteSupportId: dto.remoteSupportId?.trim(),
         managerId: manager?.id,
+        ...(supportCallTicket
+          ? {
+              assignedAdminId: actor.id,
+              assignedAdminName: actor.fullName,
+              assignedAdminUsername: actor.username,
+              assignedAt: new Date(),
+            }
+          : {}),
+        ...(dto.createdAt ? { createdAt: new Date(dto.createdAt) } : {}),
       },
       include: ticketInclude,
     });
@@ -176,7 +211,7 @@ export class TicketsService {
       throw new ForbiddenException("Admin account has no assigned branch");
     }
     const where: Prisma.TicketWhereInput = branch
-      ? { OR: [{ branch }, { assignedAdminId: actor.id }] }
+      ? { OR: [{ branch, assignedAdminId: null }, { assignedAdminId: actor.id }] }
       : actor.role === UserRole.SUPER_ADMIN
         ? {}
         : { branch: { in: actor.managedBranches } };
@@ -205,8 +240,8 @@ export class TicketsService {
       if (ticket.status !== TicketStatus.OPEN) {
         throw new ForbiddenException("Only open tickets can be edited by their requester");
       }
-      if (dto.status || dto.priority) {
-        throw new ForbiddenException("Only support staff can change ticket status or priority");
+      if (dto.status || dto.priority || dto.createdAt) {
+        throw new ForbiddenException("Only support staff can change ticket status, priority, or creation date");
       }
     } else {
       this.assertCanManageTicket(actor, ticket);
@@ -228,6 +263,7 @@ export class TicketsService {
         remoteSupportId: dto.remoteSupportId?.trim(),
         priority: dto.priority,
         status: dto.status,
+        ...(dto.createdAt ? { createdAt: new Date(dto.createdAt) } : {}),
         closedAt:
           dto.status === TicketStatus.CLOSED
             ? ticket.closedAt ?? statusChangedAt
@@ -278,6 +314,7 @@ export class TicketsService {
     await this.recordOperation(actor, "Ticket updated", {
       ticketId,
       status: updated.status,
+      ...(dto.createdAt ? { createdAt: updated.createdAt.toISOString() } : {}),
     });
     return updated;
   }
@@ -328,7 +365,21 @@ export class TicketsService {
     dto: AssignTicketDto,
   ) {
     const ticket = await this.requireTicket(ticketId);
-    this.assertCanManageTicket(actor, ticket);
+    if (actor.role === UserRole.ADMIN) {
+      this.assertCanAccessBranch(actor, ticket.branch);
+      if (ticket.assignedAdminId && ticket.assignedAdminId !== actor.id) {
+        throw new ForbiddenException("Only the ticket's current assignee or a manager can reassign it");
+      }
+      if (!ticket.assignedAdminId) {
+        const pending = await this.prisma.ticketTransferRequest.findFirst({
+          where: { ticketId, status: "PENDING" },
+          select: { id: true },
+        });
+        if (pending) throw new ConflictException("A manager assignment is waiting for acceptance");
+      }
+    } else {
+      this.assertCanManageTicket(actor, ticket);
+    }
     const assignee = await this.prisma.adminAccount.findUnique({
       where: { id: dto.assignedAdminId },
       select: {
@@ -351,6 +402,67 @@ export class TicketsService {
           ? "Assignee must be an active admin"
           : "Assignee must be an active admin for this ticket's branch",
       );
+    }
+    if (actor.role !== UserRole.ADMIN) {
+      if (ticket.assignedAdminId === assignee.id) {
+        const pendingTransfer = await this.prisma.ticketTransferRequest.findFirst({
+          where: { ticketId, status: "PENDING" },
+          select: { id: true },
+        });
+        if (pendingTransfer) {
+          await this.prisma.ticketTransferRequest.updateMany({
+            where: { ticketId, status: "PENDING" },
+            data: { status: "REJECTED", respondedAt: new Date() },
+          });
+          await this.recordOperation(actor, "Pending ticket assignment cancelled", {
+            ticketId,
+            cancelledTransferRequestId: pendingTransfer.id,
+            assignedAdminId: assignee.id,
+          });
+        }
+        return this.prisma.ticket.findUniqueOrThrow({
+          where: { id: ticketId },
+          include: ticketInclude,
+        });
+      }
+      const requestedAt = new Date();
+      const pendingTransfer = await this.prisma.ticketTransferRequest.findFirst({
+        where: { ticketId, status: "PENDING" },
+        select: { id: true, targetAdminId: true },
+      });
+      if (pendingTransfer?.targetAdminId === assignee.id) {
+        throw new ConflictException("This admin is already waiting to accept the assignment");
+      }
+      await this.prisma.$transaction(async (transaction) => {
+        if (pendingTransfer) {
+          await transaction.ticketTransferRequest.updateMany({
+            where: { ticketId, status: "PENDING" },
+            data: { status: "REJECTED", respondedAt: requestedAt },
+          });
+        }
+        await transaction.ticketTransferRequest.create({
+          data: {
+            ticketId,
+            requestedByAdminId: actor.id,
+            requesterName: actor.fullName,
+            requesterUsername: actor.username,
+            targetAdminId: assignee.id,
+            targetName: assignee.fullName,
+            targetUsername: assignee.username,
+            message: "تم إسناد التيكت بواسطة المدير، بانتظار تأكيد الاستلام.",
+          },
+        });
+      });
+      await this.recordOperation(actor, "Ticket assignment awaiting acceptance", {
+        ticketId,
+        previousAssignedAdminId: ticket.assignedAdminId,
+        targetAdminId: assignee.id,
+        branch: ticket.branch,
+      });
+      return this.prisma.ticket.findUniqueOrThrow({
+        where: { id: ticketId },
+        include: ticketInclude,
+      });
     }
     if (actor.role === UserRole.ADMIN && assignee.id !== actor.id) {
       throw new ForbiddenException("Branch admins can claim tickets or request a transfer");
@@ -495,7 +607,7 @@ export class TicketsService {
             assignedAdminId: actor.id,
             assignedAdminName: actor.fullName,
             assignedAdminUsername: actor.username,
-            assignedAt: transfer.ticket.assignedAt ?? new Date(),
+            assignedAt: new Date(),
             status:
               transfer.ticket.status === TicketStatus.OPEN
                 ? TicketStatus.IN_PROGRESS
@@ -594,20 +706,57 @@ export class TicketsService {
     return attachment;
   }
 
-  async getManagerDashboard(actor: AuthenticatedUser) {
+  async getManagerDashboard(actor: AuthenticatedUser, query: TicketQueryDto) {
     this.assertManager(actor);
-    const where = this.managerTicketWhere(actor);
+    const where = this.withFilters(this.managerTicketWhere(actor), query);
     const branches = actor.role === UserRole.SUPER_ADMIN ? undefined : actor.managedBranches;
+    const monthlyConditions: Prisma.Sql[] = [];
+    if (branches) {
+      monthlyConditions.push(
+        branches.length
+          ? Prisma.sql`"branch" IN (${Prisma.join(branches)})`
+          : Prisma.sql`FALSE`,
+      );
+    }
+    if (query.branch) monthlyConditions.push(Prisma.sql`"branch" = ${query.branch}`);
+    if (query.assignedAdminId) {
+      monthlyConditions.push(Prisma.sql`"assignedAdminId" = ${query.assignedAdminId}`);
+    }
+    if (query.category) monthlyConditions.push(Prisma.sql`"category"::text = ${query.category}`);
+    if (query.priority) monthlyConditions.push(Prisma.sql`"priority"::text = ${query.priority}`);
+    if (query.status === TicketStatus.CLOSED) {
+      monthlyConditions.push(Prisma.sql`"status"::text IN ('RESOLVED', 'CLOSED')`);
+    } else if (query.status) {
+      monthlyConditions.push(Prisma.sql`"status"::text = ${query.status}`);
+    }
+    if (query.closed !== undefined) {
+      monthlyConditions.push(query.closed
+        ? Prisma.sql`"status"::text IN ('RESOLVED', 'CLOSED')`
+        : Prisma.sql`"status"::text NOT IN ('RESOLVED', 'CLOSED')`);
+    }
+    if (query.from) monthlyConditions.push(Prisma.sql`"createdAt" >= ${new Date(query.from)}`);
+    if (query.to) monthlyConditions.push(Prisma.sql`"createdAt" <= ${new Date(query.to)}`);
+    if (!query.from && !query.to) {
+      monthlyConditions.push(
+        Prisma.sql`"createdAt" >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'`,
+        Prisma.sql`"createdAt" < date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'`,
+      );
+    }
+    const monthlyWhere = monthlyConditions.length
+      ? Prisma.sql`WHERE ${Prisma.join(monthlyConditions, " AND ")}`
+      : Prisma.empty;
     const [
       total,
       open,
       inProgress,
       waitingUser,
-      resolved,
       closed,
       highPriority,
       urgentPriority,
       byBranch,
+      assignedTicketGroups,
+      repeatedProblemGroups,
+      monthlyTickets,
       admins,
       solvedTickets,
     ] =
@@ -616,8 +765,9 @@ export class TicketsService {
         this.prisma.ticket.count({ where: { ...where, status: TicketStatus.OPEN } }),
         this.prisma.ticket.count({ where: { ...where, status: TicketStatus.IN_PROGRESS } }),
         this.prisma.ticket.count({ where: { ...where, status: TicketStatus.WAITING_USER } }),
-        this.prisma.ticket.count({ where: { ...where, status: TicketStatus.RESOLVED } }),
-        this.prisma.ticket.count({ where: { ...where, status: TicketStatus.CLOSED } }),
+        this.prisma.ticket.count({
+          where: { ...where, status: { in: [TicketStatus.RESOLVED, TicketStatus.CLOSED] } },
+        }),
         this.prisma.ticket.count({
           where: { ...where, priority: TicketPriority.HIGH },
         }),
@@ -630,6 +780,24 @@ export class TicketsService {
           _count: { _all: true },
           orderBy: { branch: "asc" },
         }),
+        this.prisma.ticket.groupBy({
+          by: ["assignedAdminId"],
+          where: { ...where, assignedAdminId: { not: null } },
+          _count: { _all: true },
+        }),
+        this.prisma.ticket.groupBy({
+          by: ["title", "category"],
+          where,
+          _count: { _all: true },
+        }),
+        this.prisma.$queryRaw<Array<{ month: string; total: bigint }>>(Prisma.sql`
+          SELECT to_char(date_trunc('month', "createdAt"), 'YYYY-MM') AS month,
+            COUNT(*)::bigint AS total
+          FROM "Ticket"
+          ${monthlyWhere}
+          GROUP BY 1
+          ORDER BY 1
+        `),
         this.prisma.adminAccount.findMany({
           where: {
             role: UserRole.ADMIN,
@@ -656,6 +824,28 @@ export class TicketsService {
           },
         }),
       ]);
+    const repeatedProblems = new Map<
+      string,
+      { title: string; category: string; total: number }
+    >();
+    for (const problem of repeatedProblemGroups) {
+      const title = problem.title.trim().replace(/\s+/g, " ");
+      const key = `${problem.category}:${title.toLocaleLowerCase()}`;
+      const existing = repeatedProblems.get(key);
+      if (existing) existing.total += problem._count._all;
+      else repeatedProblems.set(key, {
+        title,
+        category: problem.category,
+        total: problem._count._all,
+      });
+    }
+    const assignedTicketsByAdmin = new Map(
+      assignedTicketGroups.flatMap((group) =>
+        group.assignedAdminId
+          ? [[group.assignedAdminId, group._count._all] as const]
+          : [],
+      ),
+    );
     const activeAdminIds = new Set(admins.map((admin) => admin.id));
     const ticketsNeedingResolutionOwner = solvedTickets.filter(
       (ticket) =>
@@ -750,6 +940,7 @@ export class TicketsService {
         : null;
       return {
         ...admin,
+        assignedTickets: assignedTicketsByAdmin.get(admin.id) ?? 0,
         resolvedTickets: resolvedForAdmin.length,
         averageResolutionMinutes,
       };
@@ -759,7 +950,6 @@ export class TicketsService {
       open,
       inProgress,
       waitingUser,
-      resolved,
       closed,
       highPriority,
       urgentPriority: urgentPriority,
@@ -768,6 +958,14 @@ export class TicketsService {
       byBranch: byBranch.map(({ branch, _count }) => ({
         branch,
         total: _count._all,
+      })),
+      recurrentProblems: [...repeatedProblems.values()]
+        .filter((problem) => problem.total > 1)
+        .sort((left, right) => right.total - left.total)
+        .slice(0, 10),
+      monthlyTickets: monthlyTickets.map(({ month, total: monthlyTotal }) => ({
+        month,
+        total: Number(monthlyTotal),
       })),
       admins: adminPerformance,
     };
@@ -804,8 +1002,8 @@ export class TicketsService {
         if (!actor.branch) throw new ForbiddenException("Admin account has no assigned branch");
         return {
           OR: [
-            { branch: actor.branch },
             { assignedAdminId: actor.id },
+            { branch: actor.branch, assignedAdminId: null },
           ],
         };
       case UserRole.EMPLOYEE:
@@ -824,7 +1022,14 @@ export class TicketsService {
   ): Prisma.TicketWhereInput {
     const filters: Prisma.TicketWhereInput = {
       ...(query.branch ? { branch: query.branch } : {}),
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.assignedAdminId ? { assignedAdminId: query.assignedAdminId } : {}),
+      ...(query.status
+        ? {
+            status: query.status === TicketStatus.CLOSED
+              ? { in: [TicketStatus.RESOLVED, TicketStatus.CLOSED] }
+              : query.status,
+          }
+        : {}),
       ...(query.category ? { category: query.category } : {}),
       ...(query.priority ? { priority: query.priority } : {}),
       ...(query.from || query.to
@@ -842,7 +1047,11 @@ export class TicketsService {
         filters,
         ...(query.closed === undefined
           ? []
-          : [{ status: query.closed ? TicketStatus.CLOSED : { not: TicketStatus.CLOSED } }]),
+          : [{
+              status: query.closed
+                ? { in: [TicketStatus.RESOLVED, TicketStatus.CLOSED] }
+                : { notIn: [TicketStatus.RESOLVED, TicketStatus.CLOSED] },
+            }]),
       ],
     };
   }
@@ -850,6 +1059,9 @@ export class TicketsService {
   private sortOrder(query: TicketQueryDto): Prisma.TicketOrderByWithRelationInput {
     if (query.sortBy === "priority") {
       return { priority: query.sortOrder === "asc" ? "asc" : "desc" };
+    }
+    if (query.sortBy === "ticketNumber") {
+      return { ticketNumber: query.sortOrder === "asc" ? "asc" : "desc" };
     }
     return { createdAt: query.sortOrder === "asc" ? "asc" : "desc" };
   }
@@ -885,10 +1097,14 @@ export class TicketsService {
     ticket: { requesterId: string | null; assignedAdminId?: string | null; branch: string },
   ) {
     if (ticket.requesterId === actor.id) return;
-    if (
-      actor.role === UserRole.ADMIN &&
-      ticket.assignedAdminId === actor.id
-    ) return;
+    if (actor.role === UserRole.ADMIN) {
+      if (ticket.assignedAdminId === actor.id) return;
+      if (ticket.assignedAdminId !== null && ticket.assignedAdminId !== undefined) {
+        throw new ForbiddenException("Ticket is assigned to another admin");
+      }
+      this.assertCanAccessBranch(actor, ticket.branch);
+      return;
+    }
     this.assertCanAccessBranch(actor, ticket.branch);
   }
 
@@ -896,7 +1112,10 @@ export class TicketsService {
     actor: AuthenticatedUser,
     ticket: { branch: string; assignedAdminId?: string | null },
   ) {
-    if (actor.role === UserRole.ADMIN && ticket.assignedAdminId === actor.id) return;
+    if (actor.role === UserRole.ADMIN) {
+      if (ticket.assignedAdminId === actor.id) return;
+      throw new ForbiddenException("Only the assigned admin can manage this ticket");
+    }
     this.assertCanManageBranch(actor, ticket.branch);
   }
 

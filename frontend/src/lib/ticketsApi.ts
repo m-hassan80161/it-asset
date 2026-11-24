@@ -1,6 +1,7 @@
 import {
   apiClient,
   ManagerDashboardData,
+  KnowledgeArticle,
   RemoteSupportType,
   Ticket,
   TicketCategory,
@@ -17,7 +18,8 @@ export interface TicketFilters {
   closed?: boolean;
   from?: string;
   to?: string;
-  sortBy?: "createdAt" | "priority";
+  assignedAdminId?: string;
+  sortBy?: "createdAt" | "priority" | "ticketNumber";
   sortOrder?: "asc" | "desc";
   skip?: number;
   take?: number;
@@ -35,9 +37,13 @@ export const ticketsApi = {
     category: TicketCategory;
     priority: TicketPriority;
     branch?: string;
+    departmentId?: string;
     requesterId?: string;
     requesterEmail?: string;
+    requesterName?: string;
+    requesterLocation?: string;
     requesterPhone?: string;
+    createdAt?: string;
     remoteSupportType?: RemoteSupportType;
     remoteSupportId?: string;
   }) => apiClient.post<Ticket>("/tickets", input),
@@ -51,6 +57,7 @@ export const ticketsApi = {
       priority?: TicketPriority;
       remoteSupportType?: RemoteSupportType | null;
       remoteSupportId?: string | null;
+      createdAt?: string;
     },
   ) => apiClient.patch<Ticket>(`/tickets/${id}`, input),
   close: (id: string) => apiClient.post<Ticket>(`/tickets/${id}/close`),
@@ -77,7 +84,8 @@ export const ticketsApi = {
     high: number;
     urgent: number;
   }>("/tickets/admin/dashboard"),
-  managerDashboard: () => apiClient.get<ManagerDashboardData>("/tickets/manager/dashboard"),
+  managerDashboard: (filters: TicketFilters = {}) =>
+    apiClient.get<ManagerDashboardData>("/tickets/manager/dashboard", { params: filters }),
   transferTargets: () => apiClient.get<Array<{
     id: string;
     username: string;
@@ -97,4 +105,23 @@ export const ticketsApi = {
   respondToTransfer: (requestId: string, approve: boolean) =>
     apiClient.post(`/tickets/transfer-requests/${requestId}/${approve ? "approve" : "reject"}`),
   managerStats: () => apiClient.get("/tickets/manager/stats"),
+  knowledgeList: (q?: string) =>
+    apiClient.get<KnowledgeArticle[]>("/knowledge-base", { params: q?.trim() ? { q: q.trim() } : {} }),
+  knowledgeCreate: (input: {
+    title: string;
+    problem: string;
+    solution: string;
+    keywords?: string;
+  }) => apiClient.post<KnowledgeArticle>("/knowledge-base", input),
+  knowledgeUpload: (articleId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiClient.post(`/knowledge-base/${articleId}/attachments`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+  },
+  knowledgeAttachment: (articleId: string, attachmentId: string) =>
+    apiClient.get<{ fileName: string; fileUrl: string; mimeType: string }>(
+      `/knowledge-base/${articleId}/attachments/${attachmentId}`,
+    ),
 };

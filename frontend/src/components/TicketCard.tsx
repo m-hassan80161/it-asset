@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppUser, RemoteSupportType, Ticket, TicketCategory, TicketStatus } from "../lib/api";
 import { ticketsApi } from "../lib/ticketsApi";
+import { formatTicketCode } from "../lib/ticketFormatting";
 
 interface TicketCardProps {
   ticket: Ticket;
@@ -10,7 +11,7 @@ interface TicketCardProps {
   onError: (message: string) => void;
 }
 
-const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER", "RESOLVED", "CLOSED"];
+const statuses: TicketStatus[] = ["OPEN", "IN_PROGRESS", "WAITING_USER", "CLOSED"];
 const statusColors: Record<TicketStatus, string> = {
   OPEN: "bg-blue-100 text-blue-800",
   IN_PROGRESS: "bg-violet-100 text-violet-800",
@@ -39,6 +40,11 @@ function formatDuration(milliseconds: number) {
   ].join(" و");
 }
 
+function dateTimeLocalValue(value: string) {
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+}
+
 export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCardProps) {
   const [comment, setComment] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -48,7 +54,13 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
   const [category, setCategory] = useState<TicketCategory>(ticket.category);
   const [remoteSupportType, setRemoteSupportType] = useState<RemoteSupportType | "">(ticket.remoteSupportType ?? "");
   const [remoteSupportId, setRemoteSupportId] = useState(ticket.remoteSupportId ?? "");
+  const [createdAt, setCreatedAt] = useState(dateTimeLocalValue(ticket.createdAt));
+  const [editingDate, setEditingDate] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setCreatedAt(dateTimeLocalValue(ticket.createdAt));
+  }, [ticket.createdAt]);
 
   const run = async (action: () => Promise<unknown>, failure: string) => {
     setBusy(true);
@@ -92,6 +104,8 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
 
   const isRequester = ticket.requesterId === user.id;
   const canEdit = mode === "employee" && isRequester && ticket.status === "OPEN";
+  const canEditOpeningDate = mode === "admin" &&
+    (user.role === "SUPER_ADMIN" || ticket.assignedAdminId === user.id);
   const estimatedAssignment = !ticket.assignedAt && Boolean(ticket.assignedAdminId);
   const assignedAt = ticket.assignedAt
     ? new Date(ticket.assignedAt).getTime()
@@ -116,12 +130,17 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
     <article className="space-y-4 rounded-lg bg-white p-5 shadow">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold">{ticket.title}</h3>
+          <h3 className="text-lg font-semibold">
+            <span className="mr-2 font-mono text-sm text-slate-500">#{formatTicketCode(ticket.ticketNumber)}</span>
+            {ticket.title}
+          </h3>
           <p className="mt-1 text-sm text-slate-500">
             {ticket.branch} · {ticket.category} · <span className={`rounded-full px-2 py-0.5 ${priorityColors[ticket.priority]}`}>{ticket.priority}</span> · {new Date(ticket.createdAt).toLocaleString()}
           </p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusColors[ticket.status]}`}>{ticket.status}</span>
+        <span className={`rounded-full px-3 py-1 text-sm font-medium ${statusColors[ticket.status]}`}>
+          {ticket.status === "RESOLVED" || ticket.status === "CLOSED" ? "مغلقة" : ticket.status}
+        </span>
       </div>
 
       {editing ? (
@@ -168,6 +187,8 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
 
       <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
         <span>مقدم الطلب: {ticket.requester?.fullName ?? ticket.requesterName}</span>
+        {ticket.requesterEmail && <span>البريد: <b dir="ltr">{ticket.requesterEmail}</b></span>}
+        {ticket.requesterLocation && <span>المكان: {ticket.requesterLocation}</span>}
         {ticket.requesterPhone && <span>هاتف التواصل: <b dir="ltr">{ticket.requesterPhone}</b></span>}
         <span>المسؤول: {ticket.assignedAdmin?.fullName ?? ticket.assignedAdminName ?? "غير مستلم"}</span>
       </div>
@@ -182,11 +203,36 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
 
       {mode === "admin" && (
         <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+          {canEditOpeningDate && (
+            editingDate ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <label>تاريخ فتح التيكت
+                  <input
+                    type="datetime-local"
+                    value={createdAt}
+                    onChange={(event) => setCreatedAt(event.target.value)}
+                    className="ml-2 rounded border px-2 py-1"
+                  />
+                </label>
+                <button
+                  disabled={busy || !createdAt}
+                  onClick={() => void run(
+                    () => ticketsApi.update(ticket.id, { createdAt: new Date(createdAt).toISOString() }),
+                    "تعذر تعديل تاريخ فتح التيكت.",
+                  ).then(() => setEditingDate(false))}
+                  className="rounded border px-3 py-1"
+                >حفظ التاريخ</button>
+                <button onClick={() => { setCreatedAt(dateTimeLocalValue(ticket.createdAt)); setEditingDate(false); }} className="rounded border px-3 py-1">إلغاء</button>
+              </div>
+            ) : (
+              <button onClick={() => setEditingDate(true)} className="rounded border px-3 py-1 text-sm">تعديل تاريخ الفتح</button>
+            )
+          )}
           <label className="text-sm">
             الحالة
             <select
-              value={ticket.status}
-              disabled={busy}
+              value={ticket.status === "RESOLVED" ? "CLOSED" : ticket.status}
+              disabled={busy || (user.role === "ADMIN" && ticket.assignedAdminId !== user.id)}
               onChange={(event) => void run(
                 () => ticketsApi.update(ticket.id, { status: event.target.value as TicketStatus }),
                 "تعذر تحديث حالة الطلب.",
@@ -202,11 +248,11 @@ export function TicketCard({ ticket, user, mode, onRefresh, onError }: TicketCar
               "تعذر استلام الطلب.",
             )} className="rounded border border-blue-700 px-3 py-1 text-blue-700 hover:bg-blue-50">استلام الطلب</button>
           )}
-          {(ticket.status === "RESOLVED" || user.role === "SUPER_ADMIN") && ticket.status !== "CLOSED" && (
+          {ticket.status !== "CLOSED" && (user.role !== "ADMIN" || ticket.assignedAdminId === user.id) && (
             <button disabled={busy} onClick={() => void run(
               () => ticketsApi.close(ticket.id),
-              "تعذر إغلاق الطلب.",
-            )} className="rounded border px-3 py-1">إغلاق</button>
+              "تعذر إغلاق التيكت.",
+            )} className="rounded border px-3 py-1">إغلاق التيكت</button>
           )}
         </div>
       )}
